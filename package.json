@@ -1,0 +1,31 @@
+{
+  "name": "xlear-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "xlear 浏览器扩展：订阅共享过滤列表，隐藏命中账号的帖子",
+  "license": "Unlicense",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.2",
+    "idb": "^8.0.3",
+    "lucide-preact": "^1.47.0",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "wxt": "^0.21.4"
+  }
+}

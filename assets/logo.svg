@@ -1,0 +1,13 @@
+<!-- 几何与配色规则见 shared/logo.ts（这里只是导出产物，改动请同步那边）。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- X 只按水平线裁切：上下缘平，左右保留笔画尖角。 -->
+    <clipPath id="cut"><rect x="0" y="35" width="128" height="40"/></clipPath>
+    <mask id="hole">
+      <rect width="128" height="128" fill="#fff"/>
+      <g clip-path="url(#cut)"><path d="M20 11 L108 99 M108 11 L20 99" stroke="#000" stroke-width="10" stroke-linecap="butt" fill="none"/></g>
+    </mask>
+  </defs>
+  <path d="M18 8 H110 A8 8 0 0 1 118 16 V58 C118 89 95 111 64 122 C33 111 10 89 10 58 V16 A8 8 0 0 1 18 8 Z" fill="currentColor" mask="url(#hole)"/>
+  
+</svg>

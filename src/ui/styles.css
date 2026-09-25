@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+/*
+ * 与网站一致的视觉基调。扩展的弹窗与设置页独立成页，
+ * 因此这里不复用 X 的样式，只沿用同一套颜色与圆角。
+ */
+:root {
+  --bg: #ffffff;
+  --bg-elevated: #f7f9f9;
+  --panel: #ffffff;
+  --border: #eff3f4;
+  --text: #0f1419;
+  --muted: #536471;
+  --accent: #1d9bf0;
+  --accent-hover: #1a8cd8;
+  --danger: #f4212e;
+  --success: #00ba7c;
+  --warning: #ffd400;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg-elevated: #16181c;
+    --panel: #16181c;
+    --border: #2f3336;
+    --text: #e7e9ea;
+    --muted: #71767b;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+}
+
+.xl-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.xl-muted {
+  color: var(--muted);
+}
+
+.xl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.xl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.xl-btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.xl-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.xl-btn-ghost {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.xl-btn-ghost:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.xl-btn-danger {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.xl-input,
+.xl-select,
+.xl-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.xl-input:focus,
+.xl-select:focus,
+.xl-textarea:focus {
+  border-color: var(--accent);
+}
+
+.xl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  color: var(--muted);
+}
+
+.xl-chip-accent {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.xl-chip-danger {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+
+.xl-chip-success {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+
+.xl-switch {
+  appearance: none;
+  width: 44px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex: none;
+}
+
+.xl-switch:checked {
+  background: var(--accent);
+}
+
+.xl-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #ffffff;
+  transition: transform 0.15s ease;
+}
+
+.xl-switch:checked::after {
+  transform: translateX(20px);
+}
+
+/* ------------------------------ 订阅列表 ------------------------------ */
+
+/* 搜索：图标叠在输入框内，输入框左侧留出它的位置。 */
+.xl-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.xl-search .xl-input {
+  padding-left: 34px;
+}
+
+.xl-search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* 每个列表一张行卡片：圆角 + 细描边。是否订阅由勾选框表达，不额外加彩色描边。 */
+.xl-list-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.xl-list-row + .xl-list-row {
+  margin-top: 8px;
+}
+
+.xl-list-row:hover {
+  background: var(--bg-elevated);
+}
+
+/* 圆形勾选：原生复选框是方的，这里统一成"圆圈 + 勾"。
+   勾是一张内嵌 SVG，放在 inset/margin auto 居中好的方框里 —— 不用"旋转的两条边"：
+   那样旋转前勾的重心在内容框右下，绕中心转 45° 后会偏左偏下（重心偏左 1.4px、偏下 3.5px）。
+   方框尺寸固定，因此不受 box-sizing 影响（页面是 border-box，shadow root 里是 content-box）。
+   注入 X 的理由弹窗有一份等价样式（内容脚本走 shadow root，读不到这张表）。 */
+.xl-list-row input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.xl-list-row:hover input[type="checkbox"]:not(:checked):not(:disabled) {
+  border-color: var(--muted);
+}
+
+.xl-list-row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.xl-list-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.6 6.0 L4.9 8.3 L9.4 3.2' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.xl-list-row input[type="checkbox"]:checked::after {
+  opacity: 1;
+}
+
+.xl-list-row input[type="checkbox"]:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.xl-list-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.xl-list-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.xl-list-name {
+  font-weight: 700;
+}
+
+.xl-list-reason {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+}
+
+.xl-list-empty {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
