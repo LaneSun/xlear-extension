@@ -70,6 +70,24 @@ let listsCache: { at: number; lists: ListSummary[] } | null = null;
 export default defineBackground(() => {
   console.log("[xlear] 后台已启动");
 
+  // 订阅不变量只在读取时归一化：启动时把它写回一次，免得旧形态一直躺在存储里。
+  void (async () => {
+    type Stored = { subscriptions?: string[]; localLists?: { id: string }[] };
+    const stored = (await browser.storage.local.get("config")).config as
+      | Stored
+      | undefined;
+    const localIds = new Set((stored?.localLists ?? []).map((list) => list.id));
+    const leaked = (stored?.subscriptions ?? []).some((id) => localIds.has(id));
+    if (leaked) {
+      await patchConfig({
+        subscriptions: (stored?.subscriptions ?? []).filter((id) =>
+          !localIds.has(id)
+        ),
+      });
+      console.info("[xlear] 已修正存储里混入订阅的本地列表 id");
+    }
+  })();
+
   const scheduleAlarms = async () => {
     const config = await loadConfig();
     // 定时同步在后台自行发起，语言要先对齐配置（界面开关不会唤醒这段代码）。
