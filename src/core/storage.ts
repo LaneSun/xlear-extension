@@ -208,6 +208,16 @@ export async function countOverlay(): Promise<number> {
   return await (await db()).count("overlay");
 }
 
+/** 本地覆盖里每个列表各有多少账号（自建列表的条目数就是这么来的）。 */
+export async function overlayCounts(): Promise<Map<string, number>> {
+  const database = await db();
+  const counts = new Map<string, number>();
+  for (const record of await database.getAll("overlay")) {
+    for (const listId of record.lists) counts.set(listId, (counts.get(listId) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export async function addOverlay(record: OverlayRecord): Promise<void> {
   const database = await db();
   const existing = await database.get("overlay", record.userId);

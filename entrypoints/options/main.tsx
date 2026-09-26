@@ -284,6 +284,7 @@ function Options() {
           subscribed={subscribed}
           busy={busy}
           onChange={(id, checked) => void handleToggleSubscription(id, checked)}
+          onCreated={() => void load()}
         />
       )}
 
@@ -469,6 +470,7 @@ function ListsPanel(
     subscribed: Set<string>;
     busy: boolean;
     onChange: (listId: string, checked: boolean) => void;
+    onCreated: () => void;
   },
 ) {
   return (
@@ -477,6 +479,7 @@ function ListsPanel(
         lists={props.lists}
         isSelected={(id) => props.subscribed.has(id)}
         onToggle={props.onChange}
+        onCreated={props.onCreated}
         busy={props.busy}
         emptyText={t("options.lists.empty")}
       />

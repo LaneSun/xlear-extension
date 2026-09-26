@@ -6,9 +6,9 @@
  */
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
-import type { ListSummary } from "../shared/types.ts";
+import type { ListSummary, ReportSubmitResult } from "../shared/types.ts";
 import { applyLocale, t } from "../src/i18n.ts";
-import { fetchLists } from "../src/core/api.ts";
+import { fetchLists, submitCandidate } from "../src/core/api.ts";
 import {
   bumpHidden,
   loadAccountKey,
@@ -27,6 +27,7 @@ import type {
   MatchResponse,
   OverlayListResponse,
   OutboxListResponse,
+  LocalListResponse,
   StatusResponse,
   SubmitResponse,
   WebdavResultResponse,
@@ -44,6 +45,7 @@ import {
   listOverlay,
   listReportQueue,
   matchUsers,
+  overlayCounts,
   removeOverlay,
 } from "../src/core/storage.ts";
 import { syncAll } from "../src/core/sync.ts";
@@ -139,8 +141,28 @@ async function getLists(force = false): Promise<ListSummary[]> {
 async function runSync(force = false): Promise<{ lists: number; entries: number; errors: string[] }> {
   const config = await loadConfig();
   const result = await syncAll(config, { force });
+  await adoptOnlineLocalLists();
   await notifyXTabs();
   return { lists: result.lists, entries: result.totalEntries, errors: result.errors };
+}
+
+/**
+ * 对账：本地列表的 id 一旦出现在服务端列表里，就说明管理员把它采纳成了在线列表。
+ *
+ * 此时本地那份记录退场（同一个 id 继续用，名称与理由改为服务端的版本），而条目**原样留在本地
+ * 覆盖里** —— 也就是说用户在切换过程中感觉不到任何中断：还没被服务端复核出结论的账号，
+ * 依然由本地覆盖顶着；复核出结论后，在线条目自然接管。
+ */
+async function adoptOnlineLocalLists(): Promise<void> {
+  const config = await loadConfig();
+  if (config.localLists.length === 0) return;
+  const online = new Set((await getLists(true)).map((list) => list.id));
+  const adopted = config.localLists.filter((list) => online.has(list.id));
+  if (adopted.length === 0) return;
+  await patchConfig({
+    localLists: config.localLists.filter((list) => !online.has(list.id)),
+  });
+  console.info(`[xlear] 自建列表已在线：${adopted.map((list) => list.name).join("、")}`);
 }
 
 async function buildStatus(): Promise<StatusResponse> {
@@ -220,19 +242,67 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     }
     case "lists": {
       const lists = await getLists(message.force);
+      // 自建列表排在最前：那是用户自己的名单，先看到它才合理。
+      const counts = await overlayCounts();
+      const local: ListSummary[] = config.localLists.map((list) => ({
+        id: list.id,
+        name: list.name,
+        reason: list.reason,
+        entryCount: counts.get(list.id) ?? 0,
+        subscriberCount: 0,
+        version: 0,
+      }));
       const response: ListsResponse = {
-        lists,
+        lists: [...local, ...lists],
         subscriptions: config.subscriptions,
         locale: config.locale,
       };
       return response;
     }
+    case "createLocalList": {
+      const name = message.name.trim();
+      const reason = message.reason.trim();
+      if (name.length === 0 || reason.length === 0) {
+        throw new Error("list name and reason are required");
+      }
+      // 列表在本地诞生：先落盘并订阅，条目立刻可用。上传只是收集，失败也不影响本地。
+      const list = { id: crypto.randomUUID(), name, reason, createdAt: Date.now() };
+      await patchConfig({
+        localLists: [...config.localLists, list],
+        subscriptions: config.subscriptions.includes(list.id)
+          ? config.subscriptions
+          : [...config.subscriptions, list.id],
+      });
+      void submitCandidate({
+        id: list.id,
+        name: list.name,
+        reason: list.reason,
+        ...(config.locale === "auto" ? {} : { locale: config.locale }),
+      }).catch(() => undefined);
+      return { id: list.id } satisfies LocalListResponse;
+    }
     case "submitReport": {
-      const results = await submitBlockReport(
-        { userId: message.userId, screenName: message.screenName },
-        message.listIds,
-        { id: message.tweetId, url: message.tweetUrl, text: message.tweetText },
-      );
+      // 自建列表是用户自己的名单：条目只进本地覆盖、立刻生效，不出设备。
+      const localIds = new Set(config.localLists.map((list) => list.id));
+      const localTargets = message.listIds.filter((id) => localIds.has(id));
+      const remoteTargets = message.listIds.filter((id) => !localIds.has(id));
+      const results: ReportSubmitResult[] = [];
+      if (localTargets.length > 0) {
+        await addOverlay({
+          userId: message.userId,
+          screenName: message.screenName,
+          lists: localTargets,
+          addedAt: Date.now(),
+        });
+        for (const listId of localTargets) results.push({ listId, status: "accepted" });
+      }
+      if (remoteTargets.length > 0) {
+        results.push(...await submitBlockReport(
+          { userId: message.userId, screenName: message.screenName },
+          remoteTargets,
+          { id: message.tweetId, url: message.tweetUrl, text: message.tweetText },
+        ));
+      }
       const response: SubmitResponse = { results };
       return response;
     }

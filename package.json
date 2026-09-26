@@ -1,6 +1,6 @@
 {
   "name": "xlear-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "xlear 浏览器扩展：订阅共享过滤列表，隐藏命中账号的帖子",

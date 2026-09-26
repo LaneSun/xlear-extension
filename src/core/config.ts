@@ -4,6 +4,23 @@ import { browser } from "wxt/browser";
 /** 界面语言：auto 跟随浏览器，其余是受支持的语言代码。 */
 export type LocaleSetting = "auto" | "en" | "zh" | "ja" | "ru";
 
+/**
+ * 用户自己建的列表。
+ *
+ * 它首先是**用户自己的名单**：创建即在本机可用、可订阅、可举报，条目不出设备。
+ * 名称与理由会交一份给服务端留作记录（平台据此收集，是否发展成在线列表由管理员决定），
+ * 这件事不改变它在本地的工作方式。
+ */
+export interface LocalList {
+  /** 客户端生成的 UUID；若日后被采纳为在线列表，沿用的就是它。 */
+  id: string;
+  /** 用户自己写的名称，原文，不做多语言化。 */
+  name: string;
+  /** 用户自己写的理由，原文。 */
+  reason: string;
+  createdAt: number;
+}
+
 export interface ExtensionConfig {
   /** 已订阅的列表 ID。 */
   subscriptions: string[];
@@ -11,6 +28,8 @@ export interface ExtensionConfig {
   enabled: boolean;
   /** 界面语言，默认跟随浏览器。 */
   locale: LocaleSetting;
+  /** 用户自建的本地列表。 */
+  localLists: LocalList[];
   /** WebDAV 配置。 */
   webdav: {
     enabled: boolean;
@@ -24,6 +43,7 @@ export interface ExtensionConfig {
 
 export const DEFAULT_CONFIG: ExtensionConfig = {
   subscriptions: [],
+  localLists: [],
   enabled: true,
   locale: "auto",
   webdav: { enabled: false, url: "", username: "", password: "", passphrase: "" },
@@ -49,7 +69,22 @@ export async function loadConfig(): Promise<ExtensionConfig> {
     ...(config as unknown as ExtensionConfig),
     webdav: { ...DEFAULT_CONFIG.webdav, ...(raw.webdav ?? {}) },
     subscriptions: [...new Set(raw.subscriptions ?? [])],
+    localLists: normalizeLocalLists(raw.localLists),
   };
+}
+
+/** 本地列表只保留形状正确的记录：存储可能来自旧版本或被手工改过。 */
+function normalizeLocalLists(raw: unknown): LocalList[] {
+  if (!Array.isArray(raw)) return [];
+  const lists: LocalList[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { id, name, reason, createdAt } = item as Record<string, unknown>;
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (typeof name !== "string" || typeof reason !== "string") continue;
+    lists.push({ id, name, reason, createdAt: Number(createdAt) || Date.now() });
+  }
+  return lists;
 }
 
 export async function saveConfig(config: ExtensionConfig): Promise<void> {
@@ -65,6 +100,7 @@ export async function patchConfig(patch: Partial<ExtensionConfig>): Promise<Exte
     subscriptions: patch.subscriptions
       ? [...new Set(patch.subscriptions)]
       : current.subscriptions,
+    localLists: patch.localLists ?? current.localLists,
   };
   await saveConfig(next);
   return next;

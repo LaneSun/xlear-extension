@@ -291,3 +291,24 @@ body {
   color: var(--muted);
   font-size: 14px;
 }
+
+/* 搜索框 + 「创建列表」并列；小屏下按钮不占满整行。 */
+.xl-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.xl-search-row .xl-search {
+  flex: 1;
+  min-width: 0;
+}
+.xl-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.xl-create-actions {
+  display: flex;
+  gap: 8px;
+}

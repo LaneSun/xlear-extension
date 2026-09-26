@@ -121,6 +121,13 @@ export function fetchMe(key: string): Promise<AccountMeResponse> {
   });
 }
 
+/** 把自建列表的名称与理由交一份给服务端留作记录。纯收集，失败不影响本地使用。 */
+export function submitCandidate(
+  payload: { id: string; name: string; reason: string; locale?: string },
+): Promise<unknown> {
+  return request(API.candidates, { method: "POST", body: JSON.stringify(payload) });
+}
+
 export function submitReports(
   key: string,
   submission: ReportSubmission,

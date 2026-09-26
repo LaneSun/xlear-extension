@@ -54,6 +54,16 @@ export interface AddOverlayRequest {
   listIds: string[];
 }
 
+export interface CreateLocalListRequest {
+  type: "createLocalList";
+  name: string;
+  reason: string;
+}
+
+export interface LocalListResponse {
+  id: string;
+}
+
 export interface AllowRequest {
   type: "allow";
   userId: string;
@@ -181,6 +191,7 @@ export interface ClearAllRequest {
 }
 
 export type ExtensionMessage =
+  | CreateLocalListRequest
   | MatchRequest
   | ListsRequest
   | SubmitRequest
@@ -205,6 +216,7 @@ export type ExtensionMessage =
 export type MessageResponse =
   | MatchResponse
   | ListsResponse
+  | LocalListResponse
   | SubmitResponse
   | StatusResponse
   | SyncNowResponse

@@ -455,4 +455,15 @@ export const EXT_DICT: Dict = {
     "Каталог или файл, например https://dav.example.com/xlear/",
   ],
   "options.webdav.username": ["Username", "用户名", "ユーザー名", "Имя пользователя"],
+  "lists.create": ["New list", "创建列表", "リストを作成", "Создать список"],
+  "lists.createName": ["List name", "列表名称", "リスト名", "Название списка"],
+  "lists.createReason": ["Why you want it", "创建理由", "理由", "Причина"],
+  "lists.createSubmit": ["Create", "创建", "作成", "Создать"],
+  "lists.createCancel": ["Cancel", "取消", "キャンセル", "Отмена"],
+  "lists.createHint": [
+    "It works on this device right away. Its name and reason are also sent to the platform as a record; whether it becomes a shared list is decided later and changes nothing for you.",
+    "它立刻在本机可用。名称与理由同时会作为一条记录交给平台；它日后是否成为共享列表由平台决定，对你不产生任何影响。",
+    "この端末ですぐに使えます。名前と理由は記録としてプラットフォームにも送られます。共有リストになるかは後で決まり、あなたには影響しません。",
+    "Список сразу работает на этом устройстве. Название и причина также отправляются на платформу как запись; станет ли он общим, решается позже и на вас не влияет.",
+  ],
 };

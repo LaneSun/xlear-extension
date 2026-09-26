@@ -134,6 +134,10 @@ function Onboarding() {
               isSelected={(id) => selected.includes(id)}
               onToggle={(id, checked) =>
                 setSelected(checked ? [...selected, id] : selected.filter((item) => item !== id))}
+              onCreated={(id) => {
+                setSelected([...selected, id]);
+                void loadLists();
+              }}
               emptyText={t("onboarding.choose.empty")}
             />
           </Card>

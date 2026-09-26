@@ -9,6 +9,8 @@ export const API = {
   listSnapshot: (id: string) => `/api/lists/${encodeURIComponent(id)}/snapshot`,
   account: "/api/account",
   accountMe: "/api/account/me",
+  /** 自建列表的名称与理由，纯收集。 */
+  candidates: "/api/candidates",
   reports: "/api/reports",
   search: "/api/search",
   appeals: "/api/appeals",

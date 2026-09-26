@@ -4,6 +4,7 @@ import { useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
 import { Search, type LucideIcon, type LucideProps } from "lucide-preact";
 import { t } from "../i18n.ts";
+import { sendMessage } from "../core/messaging.ts";
 // 叶子模块按相对路径引入：页面与内容脚本都不该被 shared/mod.ts 的整桶依赖拖累。
 import {
   LOGO_SHIELD,
@@ -175,39 +176,116 @@ export function Spinner(props: { label?: string }) {
 /**
  * 订阅列表选择器：选项页与欢迎页共用同一份实现（含搜索），两处观感与行为一致。
  *
- * 搜索匹配列表名、理由与列表 ID——ID 是英文短名（如 adult-traffic），中文界面下搜它也好使。
+ * 搜索匹配列表名与理由。列表 ID 是 UUID，对人没有意义，不参与匹配。
  */
 export function ListPicker(
   props: {
     lists: ListSummary[];
     isSelected: (listId: string) => boolean;
     onToggle: (listId: string, checked: boolean) => void;
+    /** 用户新建了自建列表：调用方据此把它标为已选并刷新列表。 */
+    onCreated: (listId: string) => void;
     busy?: boolean;
     /** 一个列表都没有时的文案（与"搜索无结果"区分开）。 */
     emptyText: string;
   },
 ) {
   const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
+  const [creatingBusy, setCreatingBusy] = useState(false);
+  const [createError, setCreateError] = useState("");
   const needle = query.trim().toLowerCase();
   const visible = needle.length === 0 ? props.lists : props.lists.filter((list) =>
     list.name.toLowerCase().includes(needle) ||
-    list.reason.toLowerCase().includes(needle) ||
-    list.id.toLowerCase().includes(needle)
+    list.reason.toLowerCase().includes(needle)
   );
+
+  /**
+   * 建列表：后台落盘并订阅，条目立刻可用；名称与理由另交一份给平台留作记录。
+   * 失败不阻塞本地 —— 但这一步失败说明本地也没建成，所以要如实告诉用户。
+   */
+  async function createList(): Promise<void> {
+    setCreatingBusy(true);
+    setCreateError("");
+    try {
+      const created = await sendMessage<{ id: string }>({
+        type: "createLocalList",
+        name: name.trim(),
+        reason: reason.trim(),
+      });
+      setName("");
+      setReason("");
+      setCreating(false);
+      props.onCreated(created.id);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingBusy(false);
+    }
+  }
 
   return (
     <>
-      <div class="xl-search">
-        <Icon icon={Search} size={16} class="xl-search-icon" />
-        <input
-          class="xl-input"
-          type="search"
-          value={query}
-          placeholder={t("lists.search")}
-          aria-label={t("lists.search")}
-          onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
-        />
+      <div class="xl-search-row">
+        <div class="xl-search">
+          <Icon icon={Search} size={16} class="xl-search-icon" />
+          <input
+            class="xl-input"
+            type="search"
+            value={query}
+            placeholder={t("lists.search")}
+            aria-label={t("lists.search")}
+            onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
+          />
+        </div>
+        <button
+          type="button"
+          class="xl-btn"
+          onClick={() => {
+            setCreating(!creating);
+            setCreateError("");
+          }}
+        >
+          {t("lists.create")}
+        </button>
       </div>
+      {creating && (
+        <div class="xl-create-form">
+          <input
+            class="xl-input"
+            value={name}
+            maxLength={60}
+            placeholder={t("lists.createName")}
+            aria-label={t("lists.createName")}
+            onInput={(event) => setName((event.target as HTMLInputElement).value)}
+          />
+          <textarea
+            class="xl-input"
+            value={reason}
+            maxLength={300}
+            placeholder={t("lists.createReason")}
+            aria-label={t("lists.createReason")}
+            onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
+          />
+          <p class="xl-muted" style="margin: 0; font-size: 12px;">{t("lists.createHint")}</p>
+          {createError.length > 0 && <p class="xl-muted" style="margin: 0; font-size: 12px;">{createError}</p>}
+          <div class="xl-create-actions">
+            <button
+              type="button"
+              class="xl-btn xl-btn-primary"
+              disabled={creatingBusy || name.trim().length === 0 || reason.trim().length === 0}
+              onClick={() => void createList()}
+            >
+              {t("lists.createSubmit")}
+            </button>
+            <button type="button" class="xl-btn" onClick={() => setCreating(false)}>
+              {t("lists.createCancel")}
+            </button>
+          </div>
+        </div>
+      )}
       {visible.length === 0
         ? (
           <p class="xl-list-empty">
