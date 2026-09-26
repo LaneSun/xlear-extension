@@ -2,7 +2,12 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
-import { ListPlus, Search, type LucideIcon, type LucideProps } from "lucide-preact";
+import {
+  ListPlus,
+  type LucideIcon,
+  type LucideProps,
+  Search,
+} from "lucide-preact";
 import { t } from "../i18n.ts";
 import type { LocalListRow } from "../core/messaging.ts";
 // 叶子模块按相对路径引入：页面与内容脚本都不该被 shared/mod.ts 的整桶依赖拖累。
@@ -55,10 +60,17 @@ export function Logo({ size = 24 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        {/* 注意：Preact 不会把 camelCase 转成 SVG 的连字符属性，写成 strokeWidth / clipPath
-            会被原样塞进 DOM 并被浏览器忽略（掩膜里的笔画会退回默认 1px）。 */}
+        {
+          /* 注意：Preact 不会把 camelCase 转成 SVG 的连字符属性，写成 strokeWidth / clipPath
+            会被原样塞进 DOM 并被浏览器忽略（掩膜里的笔画会退回默认 1px）。 */
+        }
         <clipPath id={`c-${id}`}>
-          <rect x="0" y={LOGO_X_CLIP.y} width="128" height={LOGO_X_CLIP.height} />
+          <rect
+            x="0"
+            y={LOGO_X_CLIP.y}
+            width="128"
+            height={LOGO_X_CLIP.height}
+          />
         </clipPath>
         <mask id={`m-${id}`}>
           <rect width="128" height="128" fill="#fff" />
@@ -98,7 +110,9 @@ export function Card(
         </h2>
       )}
       {props.subtitle && (
-        <p class="xl-muted" style="margin: 0 0 12px; font-size: 13px;">{props.subtitle}</p>
+        <p class="xl-muted" style="margin: 0 0 12px; font-size: 13px;">
+          {props.subtitle}
+        </p>
       )}
       {props.children}
     </section>
@@ -106,7 +120,12 @@ export function Card(
 }
 
 export function Row(
-  props: { label: string; hint?: string; icon?: LucideIcon; children: ComponentChildren },
+  props: {
+    label: string;
+    hint?: string;
+    icon?: LucideIcon;
+    children: ComponentChildren;
+  },
 ) {
   return (
     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0;">
@@ -116,10 +135,14 @@ export function Row(
           {props.label}
         </div>
         {props.hint && (
-          <div class="xl-muted" style="font-size: 12px; margin-top: 2px;">{props.hint}</div>
+          <div class="xl-muted" style="font-size: 12px; margin-top: 2px;">
+            {props.hint}
+          </div>
         )}
       </div>
-      <div style="flex: none; display: flex; align-items: center; gap: 8px;">{props.children}</div>
+      <div style="flex: none; display: flex; align-items: center; gap: 8px;">
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -129,9 +152,14 @@ export function Field(
 ) {
   return (
     <label style="display: block; margin-bottom: 12px;">
-      <span style="display: block; font-weight: 600; margin-bottom: 4px;">{props.label}</span>
+      <span style="display: block; font-weight: 600; margin-bottom: 4px;">
+        {props.label}
+      </span>
       {props.hint && (
-        <span class="xl-muted" style="display: block; font-size: 12px; margin-bottom: 6px;">
+        <span
+          class="xl-muted"
+          style="display: block; font-size: 12px; margin-bottom: 6px;"
+        >
           {props.hint}
         </span>
       )}
@@ -140,12 +168,19 @@ export function Field(
   );
 }
 
-export function Chip(props: { tone?: "accent" | "danger" | "success"; children: ComponentChildren }) {
+export function Chip(
+  props: {
+    tone?: "accent" | "danger" | "success";
+    children: ComponentChildren;
+  },
+) {
   const cls = props.tone ? `xl-chip xl-chip-${props.tone}` : "xl-chip";
   return <span class={cls}>{props.children}</span>;
 }
 
-export function Banner(props: { tone: "info" | "error" | "success"; children: ComponentChildren }) {
+export function Banner(
+  props: { tone: "info" | "error" | "success"; children: ComponentChildren },
+) {
   const color = props.tone === "error"
     ? "var(--danger)"
     : props.tone === "success"
@@ -170,7 +205,9 @@ export function Banner(props: { tone: "info" | "error" | "success"; children: Co
 }
 
 export function Spinner(props: { label?: string }) {
-  return <span class="xl-muted" style="font-size: 13px;">{props.label ?? "…"}</span>;
+  return (
+    <span class="xl-muted" style="font-size: 13px;">{props.label ?? "…"}</span>
+  );
 }
 
 /**
@@ -191,10 +228,12 @@ export function ListPicker(
 ) {
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
-  const visible = needle.length === 0 ? props.lists : props.lists.filter((list) =>
-    list.name.toLowerCase().includes(needle) ||
-    list.reason.toLowerCase().includes(needle)
-  );
+  const visible = needle.length === 0
+    ? props.lists
+    : props.lists.filter((list) =>
+      list.name.toLowerCase().includes(needle) ||
+      list.reason.toLowerCase().includes(needle)
+    );
 
   return (
     <>
@@ -207,14 +246,17 @@ export function ListPicker(
             value={query}
             placeholder={t("lists.search")}
             aria-label={t("lists.search")}
-            onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
+            onInput={(event) =>
+              setQuery((event.target as HTMLInputElement).value)}
           />
         </div>
       </div>
       {visible.length === 0
         ? (
           <p class="xl-list-empty">
-            {props.lists.length === 0 ? props.emptyText : t("lists.noMatch", { q: query.trim() })}
+            {props.lists.length === 0
+              ? props.emptyText
+              : t("lists.noMatch", { q: query.trim() })}
           </p>
         )
         : visible.map((list) => {
@@ -225,13 +267,23 @@ export function ListPicker(
                 type="checkbox"
                 checked={checked}
                 disabled={props.busy}
-                onChange={(event) => props.onToggle(list.id, (event.target as HTMLInputElement).checked)}
+                onChange={(event) =>
+                  props.onToggle(
+                    list.id,
+                    (event.target as HTMLInputElement).checked,
+                  )}
               />
               <span class="xl-list-body">
                 <span class="xl-list-head">
                   <span class="xl-list-name">{list.name}</span>
-                  <Chip>{t("list.subscribers", { n: list.subscriberCount.toLocaleString() })}</Chip>
-                  <Chip>{t("list.entries", { n: list.entryCount.toLocaleString() })}</Chip>
+                  <Chip>
+                    {t("list.subscribers", {
+                      n: list.subscriberCount.toLocaleString(),
+                    })}
+                  </Chip>
+                  <Chip>
+                    {t("list.entries", { n: list.entryCount.toLocaleString() })}
+                  </Chip>
                 </span>
                 <span class="xl-list-reason">{list.reason}</span>
               </span>
@@ -241,7 +293,6 @@ export function ListPicker(
     </>
   );
 }
-
 
 /**
  * 「我的本地列表」：本地列表有自己的管理入口。
@@ -254,7 +305,11 @@ export function LocalListsPanel(
     rows: LocalListRow[];
     busy?: boolean;
     onCreate: (name: string, reason: string) => void | Promise<void>;
-    onRename: (id: string, name: string, reason: string) => void | Promise<void>;
+    onRename: (
+      id: string,
+      name: string,
+      reason: string,
+    ) => void | Promise<void>;
     onDelete: (id: string) => void | Promise<void>;
   },
 ) {
@@ -278,7 +333,11 @@ export function LocalListsPanel(
   }
 
   return (
-    <Card title={t("lists.mine.title")} subtitle={t("lists.mine.note")} icon={ListPlus}>
+    <Card
+      title={t("lists.mine.title")}
+      subtitle={t("lists.mine.note")}
+      icon={ListPlus}
+    >
       {props.rows.length === 0 && !creating && (
         <p class="xl-list-empty">{t("lists.mine.empty")}</p>
       )}
@@ -292,25 +351,35 @@ export function LocalListsPanel(
                   value={name}
                   maxLength={60}
                   placeholder={t("lists.createName")}
-                  onInput={(event) => setName((event.target as HTMLInputElement).value)}
+                  onInput={(event) =>
+                    setName((event.target as HTMLInputElement).value)}
                 />
                 <textarea
                   class="xl-input"
                   value={reason}
                   maxLength={300}
                   placeholder={t("lists.createReason")}
-                  onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
+                  onInput={(event) =>
+                    setReason((event.target as HTMLTextAreaElement).value)}
                 />
                 <div class="xl-create-actions">
                   <button
                     type="button"
                     class="xl-btn xl-btn-primary"
-                    disabled={props.busy || name.trim().length === 0 || reason.trim().length === 0}
-                    onClick={() => void run(() => props.onRename(row.id, name.trim(), reason.trim()))}
+                    disabled={props.busy || name.trim().length === 0 ||
+                      reason.trim().length === 0}
+                    onClick={() =>
+                      void run(() =>
+                        props.onRename(row.id, name.trim(), reason.trim())
+                      )}
                   >
                     {t("common.save")}
                   </button>
-                  <button type="button" class="xl-btn" onClick={() => setEditing("")}>
+                  <button
+                    type="button"
+                    class="xl-btn xl-btn-ghost"
+                    onClick={() => setEditing("")}
+                  >
                     {t("lists.createCancel")}
                   </button>
                 </div>
@@ -321,13 +390,17 @@ export function LocalListsPanel(
                 <div class="xl-local-head">
                   <span class="xl-list-name">{row.name}</span>
                   <Chip>{t("lists.mine.local")}</Chip>
-                  <Chip>{`${t("lists.mine.entries")} ${row.entries.toLocaleString()}`}</Chip>
+                  <Chip>
+                    {`${
+                      t("lists.mine.entries")
+                    } ${row.entries.toLocaleString()}`}
+                  </Chip>
                 </div>
                 <span class="xl-list-reason">{row.reason}</span>
                 <div class="xl-local-actions">
                   <button
                     type="button"
-                    class="xl-btn"
+                    class="xl-btn xl-btn-ghost"
                     disabled={props.busy}
                     onClick={() => {
                       setName(row.name);
@@ -339,7 +412,7 @@ export function LocalListsPanel(
                   </button>
                   <button
                     type="button"
-                    class="xl-btn"
+                    class="xl-btn xl-btn-ghost"
                     disabled={props.busy}
                     onClick={() => {
                       if (globalThis.confirm(t("lists.mine.deleteConfirm"))) {
@@ -362,40 +435,57 @@ export function LocalListsPanel(
               value={name}
               maxLength={60}
               placeholder={t("lists.createName")}
-              onInput={(event) => setName((event.target as HTMLInputElement).value)}
+              onInput={(event) =>
+                setName((event.target as HTMLInputElement).value)}
             />
             <textarea
               class="xl-input"
               value={reason}
               maxLength={300}
               placeholder={t("lists.createReason")}
-              onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
+              onInput={(event) =>
+                setReason((event.target as HTMLTextAreaElement).value)}
             />
             <div class="xl-create-actions">
               <button
                 type="button"
                 class="xl-btn xl-btn-primary"
-                disabled={props.busy || name.trim().length === 0 || reason.trim().length === 0}
-                onClick={() => void run(() => props.onCreate(name.trim(), reason.trim()))}
+                disabled={props.busy || name.trim().length === 0 ||
+                  reason.trim().length === 0}
+                onClick={() =>
+                  void run(() => props.onCreate(name.trim(), reason.trim()))}
               >
                 {t("lists.createSubmit")}
               </button>
-              <button type="button" class="xl-btn" onClick={() => setCreating(false)}>
+              <button
+                type="button"
+                class="xl-btn xl-btn-ghost"
+                onClick={() => setCreating(false)}
+              >
                 {t("lists.createCancel")}
               </button>
             </div>
           </div>
         )
         : (
-          <button type="button" class="xl-btn" disabled={props.busy} onClick={() => {
-            setName("");
-            setReason("");
-            setCreating(true);
-          }}>
+          <button
+            type="button"
+            class="xl-btn xl-btn-primary"
+            disabled={props.busy}
+            onClick={() => {
+              setName("");
+              setReason("");
+              setCreating(true);
+            }}
+          >
             {t("lists.create")}
           </button>
         )}
-      {error.length > 0 && <p class="xl-muted" style="margin: 8px 0 0; font-size: 12px;">{error}</p>}
+      {error.length > 0 && (
+        <p class="xl-muted" style="margin: 8px 0 0; font-size: 12px;">
+          {error}
+        </p>
+      )}
     </Card>
   );
 }
