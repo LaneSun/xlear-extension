@@ -58,7 +58,9 @@ and every listed account can be appealed on the website.
 
 Grab a build from [Releases](https://github.com/LaneSun/xlear-extension/releases):
 
-- `xlear-extension-X.Y.Z.xpi` — Firefox. **Unsigned**: release Firefox only installs AMO-signed
+- `xlear-extension-X.Y.Z-signed.xpi` — Firefox, **signed by AMO**, installs in release Firefox
+  (present only for releases built with AMO credentials configured).
+- `xlear-extension-X.Y.Z.xpi` — Firefox unsigned: release Firefox only installs AMO-signed
   extensions; use Developer Edition / Nightly with `xpinstall.signatures.required = false`,
   or sign it on AMO yourself.
 - `xlear-extension-X.Y.Z.crx` — Chromium browsers. Off-store CRX installs are blocked by default;

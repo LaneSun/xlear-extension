@@ -51,7 +51,9 @@ Xlear 把它变成一份共享名单：一个人举报，AI 复核证据后入�
 
 在 [Releases](https://github.com/LaneSun/xlear-extension/releases) 下载：
 
-- `xlear-extension-X.Y.Z.xpi` —— Firefox。**未签名**：正式版 Firefox 只装 AMO 签名的扩展，
+- `xlear-extension-X.Y.Z-signed.xpi` —— Firefox，**已由 AMO 签名**，正式版可直接安装（配置了
+  AMO 凭据的发布才会有这个文件）。
+- `xlear-extension-X.Y.Z.xpi` —— Firefox 未签名包：正式版 Firefox 只装 AMO 签名的扩展，
   要用它请换 Developer Edition / Nightly 并把 `xpinstall.signatures.required` 设为 `false`，
   或自行在 AMO 签名。
 - `xlear-extension-X.Y.Z.crx` —— Chromium 系（Chrome / Edge / Brave …）。商店外的 crx 默认被拦截，
