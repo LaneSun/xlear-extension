@@ -25,8 +25,19 @@ export interface ListsRequest {
   force?: boolean;
 }
 
+/** 一条本地列表在界面上的行数据。 */
+export interface LocalListRow {
+  id: string;
+  name: string;
+  reason: string;
+  /** 命中它的账号数（来自本地覆盖）。 */
+  entries: number;
+}
+
 export interface ListsResponse {
   lists: ListSummary[];
+  /** 自建列表：与服务器列表是两种东西，单独给出，不混进 `lists` 的语义里。 */
+  local: LocalListRow[];
   subscriptions: string[];
   locale: ExtensionConfig["locale"];
 }

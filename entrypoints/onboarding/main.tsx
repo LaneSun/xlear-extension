@@ -1,22 +1,45 @@
+import type { LocalListRow } from "../../src/core/messaging.ts";
 import { render } from "preact";
 import { browser } from "wxt/browser";
 import { useEffect, useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
-import type { ConfigResponse, ListsResponse, SyncNowResponse } from "../../src/core/messaging.ts";
+import type {
+  ConfigResponse,
+  ListsResponse,
+  SyncNowResponse,
+} from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
-import { hasRequiredOrigins, requestRequiredOrigins } from "../../src/core/permissions.ts";
+import {
+  hasRequiredOrigins,
+  requestRequiredOrigins,
+} from "../../src/core/permissions.ts";
 import { ListChecks, Server, ShieldCheck } from "lucide-preact";
 import { applyDocumentLocale, applyLocale, t } from "../../src/i18n.ts";
-import { Banner, Card, ListPicker, Logo, Spinner } from "../../src/ui/components.tsx";
+import {
+  Banner,
+  Card,
+  ListPicker,
+  LocalListsPanel,
+  Logo,
+  Spinner,
+} from "../../src/ui/components.tsx";
 import "../../src/ui/styles.css";
 
-type Stage = "connecting" | "needs-permission" | "choosing" | "syncing" | "done";
+type Stage =
+  | "connecting"
+  | "needs-permission"
+  | "choosing"
+  | "syncing"
+  | "done";
 
 function Onboarding() {
   const [stage, setStage] = useState<Stage>("connecting");
   const [lists, setLists] = useState<ListSummary[]>([]);
+  const [local, setLocal] = useState<LocalListRow[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [notice, setNotice] = useState<{ tone: "info" | "error" | "success"; text: string } | null>(null);
+  const [notice, setNotice] = useState<
+    { tone: "info" | "error" | "success"; text: string } | null
+  >(null);
   const [summary, setSummary] = useState("");
 
   useEffect(() => {
@@ -50,14 +73,21 @@ function Onboarding() {
       }
       await loadLists();
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : String(error) });
+      setNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   async function loadLists(): Promise<void> {
     try {
-      const response = await sendMessage<ListsResponse>({ type: "lists", force: true });
+      const response = await sendMessage<ListsResponse>({
+        type: "lists",
+        force: true,
+      });
       setLists(response.lists);
+      setLocal(response.local ?? []);
       // 刻意不预选任何列表：订阅哪些由用户自己决定（原来会默认勾选活跃度最高的两个）。
       setStage("choosing");
       if (response.lists.length === 0) {
@@ -65,11 +95,11 @@ function Onboarding() {
       }
     } catch (error) {
       setNotice({
-          tone: "error",
-          text: t("onboarding.connect.loadFailed", {
-            error: error instanceof Error ? error.message : String(error),
-          }),
-        });
+        tone: "error",
+        text: t("onboarding.connect.loadFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
       setStage("needs-permission");
     }
   }
@@ -82,14 +112,25 @@ function Onboarding() {
         type: "updateConfig",
         patch: { subscriptions: selected },
       });
-      const result = await sendMessage<SyncNowResponse>({ type: "syncNow", force: true });
+      const result = await sendMessage<SyncNowResponse>({
+        type: "syncNow",
+        force: true,
+      });
       const failed = result.errors.length > 0
         ? t("onboarding.done.failedLists", { n: result.errors.length })
         : "";
-      setSummary(t("onboarding.done.summary", { n: result.entries.toLocaleString(), failed }));
+      setSummary(
+        t("onboarding.done.summary", {
+          n: result.entries.toLocaleString(),
+          failed,
+        }),
+      );
       setStage("done");
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : String(error) });
+      setNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
       setStage("choosing");
     }
   }
@@ -100,8 +141,10 @@ function Onboarding() {
         <Logo size={24} />
         {t("onboarding.welcome")}
       </h1>
-      {/* Tailwind 的 preflight 会把 p 的默认边距清零，这里必须显式写下边距，
-          否则这段文字会紧贴下面的卡片（只隔一层卡片边框）。 */}
+      {
+        /* Tailwind 的 preflight 会把 p 的默认边距清零，这里必须显式写下边距，
+          否则这段文字会紧贴下面的卡片（只隔一层卡片边框）。 */
+      }
       <p class="xl-muted" style="margin: 0 0 16px;">
         {t("onboarding.intro")}
       </p>
@@ -110,7 +153,11 @@ function Onboarding() {
       {(stage === "connecting") && <Spinner />}
 
       {stage === "needs-permission" && (
-        <Card title={t("onboarding.connect.title")} subtitle={t("onboarding.connect.note")} icon={Server}>
+        <Card
+          title={t("onboarding.connect.title")}
+          subtitle={t("onboarding.connect.note")}
+          icon={Server}
+        >
           <button
             class="xl-btn xl-btn-primary"
             type="button"
@@ -128,12 +175,35 @@ function Onboarding() {
 
       {stage === "choosing" && (
         <>
-          <Card title={t("onboarding.choose.title")} subtitle={t("onboarding.choose.note")} icon={ListChecks}>
+          <LocalListsPanel
+            rows={local}
+            onCreate={async (name, reason) => {
+              await sendMessage({ type: "createLocalList", name, reason });
+              await loadLists();
+            }}
+            onRename={async (id, name, reason) => {
+              await sendMessage({ type: "renameLocalList", id, name, reason });
+              await loadLists();
+            }}
+            onDelete={async (id) => {
+              await sendMessage({ type: "deleteLocalList", id });
+              await loadLists();
+            }}
+          />
+          <Card
+            title={t("onboarding.choose.title")}
+            subtitle={t("onboarding.choose.note")}
+            icon={ListChecks}
+          >
             <ListPicker
               lists={lists}
               isSelected={(id) => selected.includes(id)}
               onToggle={(id, checked) =>
-                setSelected(checked ? [...selected, id] : selected.filter((item) => item !== id))}
+                setSelected(
+                  checked
+                    ? [...selected, id]
+                    : selected.filter((item) => item !== id),
+                )}
               emptyText={t("onboarding.choose.empty")}
             />
           </Card>

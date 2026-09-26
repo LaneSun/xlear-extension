@@ -1,7 +1,5 @@
-import {
-  type LocalListRow,
-  LocalListsPanel,
-} from "../../src/ui/components.tsx";
+import type { LocalListRow } from "../../src/core/messaging.ts";
+import { LocalListsPanel } from "../../src/ui/components.tsx";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";

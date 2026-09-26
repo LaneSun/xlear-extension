@@ -4,6 +4,7 @@ import { useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
 import { ListPlus, Search, type LucideIcon, type LucideProps } from "lucide-preact";
 import { t } from "../i18n.ts";
+import type { LocalListRow } from "../core/messaging.ts";
 // 叶子模块按相对路径引入：页面与内容脚本都不该被 shared/mod.ts 的整桶依赖拖累。
 import {
   LOGO_SHIELD,
@@ -241,15 +242,6 @@ export function ListPicker(
   );
 }
 
-
-/** 一条本地列表在界面上的样子。 */
-export interface LocalListRow {
-  id: string;
-  name: string;
-  reason: string;
-  /** 命中这个列表的账号数（来自本地覆盖）。 */
-  entries: number;
-}
 
 /**
  * 「我的本地列表」：本地列表有自己的管理入口。

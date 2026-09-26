@@ -340,6 +340,12 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       }));
       const response: ListsResponse = {
         lists: [...local, ...lists],
+        local: config.localLists.map((list) => ({
+          id: list.id,
+          name: list.name,
+          reason: list.reason,
+          entries: counts.get(list.id) ?? 0,
+        })),
         subscriptions: config.subscriptions,
         locale: config.locale,
       };
