@@ -11,7 +11,14 @@ Xlear 扩展的开发约定。设计与上手见 `README.md`；服务端在另�
   （弹窗标题里的理由文案、注入卡片的说明）按调用方传入的语言渲染。
 
 ## 硬性规则
-- **页面行为的调试与验证只在所有者明确要求时进行**：不要自行 attach 浏览器、采样 DOM 或反复打开 X 页面 —— 那是所有者的账号与窗口。需要看现象时先问，由所有者决定谁来测。
+- **不主动操作 X 页面**：所有者的账号与窗口归他本人，需要看 X 上的现象时先问。
+  这条只覆盖 X（x.com / twitter.com）；**扩展自己的页面（options / onboarding / popup）属于自查范围** ——
+  改完界面或消息链路，应当自己用 CDP 连上去点一遍、量一遍（计算样式、DOM 与实际存储），
+  不要停在"编译过了"就交给所有者验。
+- 开发期改了扩展代码后，**必须重启浏览器并清掉 `Default/Service Worker` 与 `Default/Code Cache/js`**
+  再验：Chrome 会缓存 Service Worker 脚本与页面 chunk，否则量到的是旧构建（本会话被这一点误导过两次）。
+- 用 CDP 驱动 Preact 受控输入时，直接赋值 `el.value` 会被覆盖，必须用原生 setter：
+  `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v)` 再派发 `input` 事件。
 
 1. 不使用子 Agent 代工，全部任务由本人完成。
 2. 不逆向 X 的请求签名；不硬编码 GraphQL `queryId`；不依赖页面 computed font。
