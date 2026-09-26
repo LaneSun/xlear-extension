@@ -100,6 +100,8 @@ export function Card(
     title?: string;
     subtitle?: string;
     icon?: LucideIcon;
+    /** 标题右上角的操作（例如「立即同步」）：与标题同行、靠右。 */
+    action?: ComponentChildren;
     children: ComponentChildren;
   },
 ) {
@@ -109,6 +111,11 @@ export function Card(
         <h2 style="margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px;">
           {props.icon && <Icon icon={props.icon} size={16} class="xl-muted" />}
           {props.title}
+          {props.action && (
+            <span style="margin-left: auto; display: inline-flex;">
+              {props.action}
+            </span>
+          )}
         </h2>
       )}
       {props.subtitle && (
