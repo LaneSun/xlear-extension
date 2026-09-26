@@ -39,7 +39,10 @@ export interface ListSummary {
   reason: string;
   entryCount: number;
   subscriberCount: number;
+  /** 差量信号：与本地记录的版本不同才需要拉 /changes。 */
   version: number;
+  /** 仅供展示的新鲜度，不参与是否请求的判断。 */
+  updatedAt: number;
 }
 
 export interface ListsResponse {

@@ -141,7 +141,9 @@ async function getLists(force = false): Promise<ListSummary[]> {
 
 async function runSync(force = false): Promise<{ lists: number; entries: number; errors: string[] }> {
   const config = await loadConfig();
-  const result = await syncAll(config, { force });
+  // 目录先取（force 时绕过缓存），同步器据此决定要不要发差量请求。
+  const catalog = await getLists(force);
+  const result = await syncAll(config, { force, catalog });
   await adoptOnlineLocalLists();
   await notifyXTabs();
   return { lists: result.lists, entries: result.totalEntries, errors: result.errors };
@@ -162,6 +164,8 @@ async function adoptOnlineLocalLists(): Promise<void> {
   if (adopted.length === 0) return;
   await patchConfig({
     localLists: config.localLists.filter((list) => !online.has(list.id)),
+    // 身份变成在线列表之后，它才该进订阅 —— 目录里从此才有它。
+    subscriptions: [...new Set([...config.subscriptions, ...adopted.map((list) => list.id)])],
   });
   // 逐条把原本地条目提交上线：没带帖子的（补字段之前建的）留在本地覆盖里，只对自己生效。
   for (const list of adopted) {
@@ -259,7 +263,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     }
     case "lists": {
       const lists = await getLists(message.force);
-      // 自建列表排在最前：那是用户自己的名单，先看到它才合理。
+      // 界面把自建列表排在最前面；同步路径用的是**不含本地列表**的目录（见 runSync）。
       const counts = await overlayCounts();
       const local: ListSummary[] = config.localLists.map((list) => ({
         id: list.id,
@@ -268,6 +272,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         entryCount: counts.get(list.id) ?? 0,
         subscriberCount: 0,
         version: 0,
+        updatedAt: list.createdAt,
       }));
       const response: ListsResponse = {
         lists: [...local, ...lists],
@@ -282,14 +287,10 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       if (name.length === 0 || reason.length === 0) {
         throw new Error("list name and reason are required");
       }
-      // 列表在本地诞生：先落盘并订阅，条目立刻可用。上传只是收集，失败也不影响本地。
+      // 列表在本地诞生：只落盘，**不进订阅** —— 订阅的语义是"要从服务器同步的列表"，
+      // 而它此刻在服务器上并不存在。它在本地可用靠的是本地覆盖与匹配，不需要网络。
       const list = { id: crypto.randomUUID(), name, reason, createdAt: Date.now() };
-      await patchConfig({
-        localLists: [...config.localLists, list],
-        subscriptions: config.subscriptions.includes(list.id)
-          ? config.subscriptions
-          : [...config.subscriptions, list.id],
-      });
+      await patchConfig({ localLists: [...config.localLists, list] });
       void submitCandidate({
         id: list.id,
         name: list.name,

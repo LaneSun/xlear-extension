@@ -68,8 +68,13 @@ export async function loadConfig(): Promise<ExtensionConfig> {
   return {
     ...(config as unknown as ExtensionConfig),
     webdav: { ...DEFAULT_CONFIG.webdav, ...(raw.webdav ?? {}) },
-    subscriptions: [...new Set(raw.subscriptions ?? [])],
     localLists: normalizeLocalLists(raw.localLists),
+    // 不变量：订阅里只有服务器列表。本地列表走本地判定，绝不进网络路径 ——
+    // 早前的版本把它写进了订阅，于是同步器拿一个服务器不存在的 id 去问，界面报"列表不存在"。
+    subscriptions: (() => {
+      const local = new Set(normalizeLocalLists(raw.localLists).map((list) => list.id));
+      return [...new Set(raw.subscriptions ?? [])].filter((id) => !local.has(id));
+    })(),
   };
 }
 
@@ -97,9 +102,13 @@ export async function patchConfig(patch: Partial<ExtensionConfig>): Promise<Exte
     ...current,
     ...patch,
     webdav: { ...current.webdav, ...(patch.webdav ?? {}) },
-    subscriptions: patch.subscriptions
-      ? [...new Set(patch.subscriptions)]
-      : current.subscriptions,
+    subscriptions: (() => {
+      const localIds = new Set((patch.localLists ?? current.localLists).map((list) => list.id));
+      const next = patch.subscriptions
+        ? [...new Set(patch.subscriptions)]
+        : current.subscriptions;
+      return next.filter((id) => !localIds.has(id));
+    })(),
     localLists: patch.localLists ?? current.localLists,
   };
   await saveConfig(next);

@@ -4,8 +4,9 @@
  * 每个列表记一个已应用的版本号，之后只拉差量。如果服务端告知本地落后于保留水位
  * （差量被压缩了），就整表重拉。同步结束会打一次订阅卡，用于服务端统计活跃度。
  */
-import { loadConfig, loadState, mutateState, type ExtensionConfig } from "./config.ts";
-import { fetchChanges, fetchSnapshot } from "./api.ts";
+import { loadConfig, loadState, mutateState, patchConfig, type ExtensionConfig } from "./config.ts";
+import type { ListSummary } from "../../shared/types.ts";
+import { fetchChanges, fetchLists, fetchSnapshot } from "./api.ts";
 import { applyChanges, countFiltered, replaceListSnapshot } from "./storage.ts";
 
 export interface SyncResult {
@@ -18,16 +19,33 @@ export interface SyncResult {
 
 export async function syncAll(
   config?: ExtensionConfig,
-  options: { force?: boolean; listIds?: string[] } = {},
+  options: { force?: boolean; catalog?: ListSummary[] } = {},
 ): Promise<SyncResult> {
   const current = config ?? await loadConfig();
   const state = await loadState();
-  const targets = options.listIds ?? current.subscriptions;
   const result: SyncResult = { lists: 0, totalEntries: 0, errors: [] };
+
+  // 目录先行：它是"哪些列表存在、各自到哪一版"的唯一来源。
+  // 本地列表不在目录里，也就永远不会走到网络请求上。
+  const catalog: ListSummary[] = options.catalog ?? (await fetchLists()).lists;
+  const known = new Set(catalog.map((list) => list.id));
+  const stale = current.subscriptions.filter((id) => !known.has(id));
+  if (stale.length > 0) {
+    // 订阅了目录里没有的列表（被下架或删掉）：静默丢弃，不当作错误 —— 用户没做错任何事。
+    await patchConfig({ subscriptions: current.subscriptions.filter((id) => known.has(id)) });
+    console.info(`[xlear] 已丢弃目录里不存在的订阅：${stale.join("、")}`);
+  }
+  const targets = current.subscriptions.filter((id) => known.has(id));
+  const byId = new Map(catalog.map((list) => [list.id, list]));
 
   for (const listId of targets) {
     const record = state.listVersions[listId];
     const since = options.force ? 0 : record?.version ?? 0;
+    // 版本没动就不请求：包管理器式的纪律，一次目录 + 几个真正变了的列表。
+    if (!options.force && record && record.version >= (byId.get(listId)?.version ?? 0)) {
+      result.lists++;
+      continue;
+    }
     try {
       const changes = await fetchChanges(listId, since);
       // 整表重拉的两种情形：差量已被压缩（本地版本落后于保留水位），或用户手动强制同步。
