@@ -335,7 +335,6 @@ export function LocalListsPanel(
   return (
     <Card
       title={t("lists.mine.title")}
-      subtitle={t("lists.mine.note")}
       icon={ListPlus}
     >
       {props.rows.length === 0 && !creating && (

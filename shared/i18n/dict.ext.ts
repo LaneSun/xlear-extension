@@ -557,12 +557,6 @@ export const EXT_DICT: Dict = {
     "自分のリスト",
     "Мои списки",
   ],
-  "lists.mine.note": [
-    "Names and reasons are uploaded once; the accounts inside stay here.",
-    "名称与理由会上传一次；其中的账号不出设备。",
-    "名前と理由は一度だけ送信されます。中のアカウントは端末外に出ません。",
-    "Название и причина отправляются один раз; аккаунты остаются здесь.",
-  ],
   "lists.mine.empty": [
     "No lists yet",
     "还没有本地列表",
