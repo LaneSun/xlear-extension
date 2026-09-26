@@ -58,11 +58,17 @@ and every listed account can be appealed on the website.
 
 Grab a build from [Releases](https://github.com/LaneSun/xlear-extension/releases):
 
-- `xlear-extension-X.Y.Z.xpi` — Firefox. **Unsigned**: release Firefox only installs AMO-signed
+- `xlear-extension-X.Y.Z-signed.xpi` — Firefox, **signed by AMO**, installs in release Firefox
+  (present only for releases built with AMO credentials configured).
+- `xlear-extension-X.Y.Z.xpi` — Firefox unsigned: release Firefox only installs AMO-signed
   extensions; use Developer Edition / Nightly with `xpinstall.signatures.required = false`,
   or sign it on AMO yourself.
-- `xlear-extension-X.Y.Z.crx` — Chromium browsers. Off-store CRX installs are blocked by default;
-  use an enterprise policy (`ExtensionInstallForcelist`) or drag it onto `chrome://extensions`.
+- `xlear-extension-X.Y.Z.crx` — Chromium browsers. Off-store CRX installs are blocked (the source is
+  blocked, not the signature), so this is an enterprise-policy install on managed devices — and it
+  **auto-updates** from the policy's update URL:
+  ```
+  jphaecjdabihkdhglojhfihdhnbibmci;https://github.com/LaneSun/xlear-extension/releases/latest/download/updates.xml
+  ```
 - `xlear-extension-X.Y.Z-chrome.zip` — unzip, then "Load unpacked" in `chrome://extensions`.
 
 Every release ships `SHA256SUMS` alongside the artifacts; the pipeline is documented in `docs/RELEASING.md`.

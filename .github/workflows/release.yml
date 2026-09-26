@@ -46,7 +46,41 @@ jobs:
         env:
           CRX_KEY_FILE: ${{ runner.temp }}/crx-key.pem
           CHROME_BIN: google-chrome
+          # 更新清单要写死 crx 的下载地址，所以这里告诉它发布位置
+          XL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases
         run: pnpm run pack
+
+      - name: 看看有没有 AMO 凭据（没有就跳过签名）
+        id: amo
+        env:
+          MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+        run: |
+          if [ -z "$MOZILLA_API_KEY" ]; then
+            echo "::notice::未配置 MOZILLA_API_KEY / MOZILLA_API_SECRET，跳过 xpi 签名。缺少签名时 Firefox 正式版无法安装，见 docs/RELEASING.md。"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 让 AMO 给 xpi 签名（unlisted：自托管安装用）
+        if: steps.amo.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
+        run: |
+          # unlisted 是唯一会把签好名的 xpi 交给我们的通道（官方文档原话）；
+          # 同一个版本号不能重复提交，所以重跑本工作流时这里会失败 —— 因此上面允许失败，
+          # 签名只是加成，不该把已经出来的构建挡回去。
+          npx --yes web-ext@latest sign \
+            --source-dir .output/firefox-mv3 \
+            --channel=unlisted \
+            --artifacts-dir .output/amo \
+            --no-input
+          for f in .output/amo/*.xpi; do
+            [ -e "$f" ] || continue
+            mv "$f" ".output/$(basename "$f" .xpi)-signed.xpi"
+          done
 
       - name: 建 Release 并挂产物
         env:
@@ -55,4 +89,4 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            .output/*.zip .output/*.xpi .output/*.crx .output/SHA256SUMS
+            .output/*.zip .output/*.xpi .output/*.crx .output/updates.xml .output/SHA256SUMS

@@ -51,11 +51,17 @@ Xlear 把它变成一份共享名单：一个人举报，AI 复核证据后入�
 
 在 [Releases](https://github.com/LaneSun/xlear-extension/releases) 下载：
 
-- `xlear-extension-X.Y.Z.xpi` —— Firefox。**未签名**：正式版 Firefox 只装 AMO 签名的扩展，
+- `xlear-extension-X.Y.Z-signed.xpi` —— Firefox，**已由 AMO 签名**，正式版可直接安装（配置了
+  AMO 凭据的发布才会有这个文件）。
+- `xlear-extension-X.Y.Z.xpi` —— Firefox 未签名包：正式版 Firefox 只装 AMO 签名的扩展，
   要用它请换 Developer Edition / Nightly 并把 `xpinstall.signatures.required` 设为 `false`，
   或自行在 AMO 签名。
-- `xlear-extension-X.Y.Z.crx` —— Chromium 系（Chrome / Edge / Brave …）。商店外的 crx 默认被拦截，
-  需要企业策略（`ExtensionInstallForcelist`）或拖到 `chrome://extensions` 后确认。
+- `xlear-extension-X.Y.Z.crx` —— Chromium 系（Chrome / Edge / Brave …）。商店外的 crx 默认被拦截
+  （拦的是来源而不是签名），只能用**企业策略**在受管设备上安装；装好之后**会自动更新** ——
+  策略条目写成 `<扩展 ID>;<update_url>` 即可：
+  ```
+  jphaecjdabihkdhglojhfihdhnbibmci;https://github.com/LaneSun/xlear-extension/releases/latest/download/updates.xml
+  ```
 - `xlear-extension-X.Y.Z-chrome.zip` —— 解压后在 `chrome://extensions` 打开「开发者模式」→「加载已解压的扩展程序」。
 
 每个产物都附在 Release 里，并给出 `SHA256SUMS` 校验和；打包与发版流程见 `docs/RELEASING.md`。

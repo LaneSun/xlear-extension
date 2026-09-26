@@ -53,6 +53,75 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 | `xlear-extension-X.Y.Z-sources.zip` | 商店审核要求的源码包 |
 | `SHA256SUMS` | 上面每个文件的校验和 |
 
+## AMO 签名（让 Firefox 正式版也能装）
+
+Firefox 正式版只安装 AMO 签名的扩展，未签名的 xpi 只能进 Developer Edition / Nightly。签名有两条路，
+官方文档的关键区别是：**只有 `--channel=unlisted` 会把签好名的文件交给我们**
+（`listed` 是往公开列表提交新版本，签名文件由 AMO 托管）。
+
+### 一、随 Release 自动签（已接好）
+
+`.github/workflows/release.yml` 在建 Release 前会尝试用 AMO 凭据给 firefox 构建签名，产物以
+`…-signed.xpi` 挂进 Release —— 这个文件在**正式版 Firefox 里可以直接安装**。
+
+凭据就是 AMO 的 **JWT issuer / secret**，形式上分别是 `user:<数字>:<数字>` 和一串十六进制。
+本仓库的 `.env` 里已经有一份（`MOZILLA_API_KEY` / `MOZILLA_API_SECRET`）；启用 CI 签名只需把它们
+同名写进仓库 secret：
+
+```bash
+gh secret set MOZILLA_API_KEY --repo LaneSun/xlear-extension < <(rg '^MOZILLA_API_KEY=' .env | cut -d= -f2-)
+gh secret set MOZILLA_API_SECRET --repo LaneSun/xlear-extension < <(rg '^MOZILLA_API_SECRET=' .env | cut -d= -f2-)
+```
+
+本地想手动签名时注意 **web-ext 只认自己的变量名**（这个坑踩过一次）：
+
+```bash
+WEB_EXT_API_KEY="$MOZILLA_API_KEY" WEB_EXT_API_SECRET="$MOZILLA_API_SECRET" \
+  npx web-ext sign --source-dir .output/firefox-mv3 --channel=unlisted
+```
+
+没配置时这一步会打印一条 notice 并跳过（签名是加成，不该挡发布）。同一个版本号
+在 AMO 只能签一次，因此重跑同一次发布的工作流时这一步会失败 —— 所以它设了 allow-failure。
+
+### 二、上架 AMO（listed，按需手动）
+
+公开列表页由这条路创建/更新，需要审核；签名后的 xpi 由 AMO 托管（不会返回本地文件）：
+
+```bash
+npx web-ext sign \
+  --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" \
+  --source-dir .output/firefox-mv3 \
+  --channel=listed \
+  --upload-source-code .output/xlear-extension-X.Y.Z-sources.zip \
+  --approval-timeout=0        # 提交后立刻返回，不等审核；签名完成后 AMO 会发邮件
+```
+
+要点：
+- 首次执行会**创建**列表页（ID 用清单里的 `xlear@anlbrain.com`，之后不可改）。
+- 版本号必须**严格递增**；同一个版本不能重复提交。
+- 我们的构建是打包过的，AMO 会要求源码 —— 所以必须带 `--upload-source-code`（`pnpm run pack` 已经
+  产出那个 `-sources.zip`）。
+- 提交前可本地预检：`npx web-ext lint --source-dir .output/firefox-mv3`
+  （当前结果：0 错误 / 3 警告 —— 警告都是打包进去的依赖里的 `innerHTML` 赋值，我们自己的源码没有）。
+
+## crx 的自动更新
+
+Chromium 系自托管扩展的更新机制是：**企业策略里带 update URL**，那个 URL 返回一份 XML，
+XML 再指向具体的 crx 与版本号。因此不需要在扩展代码里写 `update_url`：
+
+```
+ExtensionInstallForcelist:
+  jphaecjdabihkdhglojhfihdhnbibmci;https://github.com/LaneSun/xlear-extension/releases/latest/download/updates.xml
+```
+
+- `pnpm run pack` 会生成 `updates.xml`（CI 里 `XL_RELEASE_BASE_URL` 由工作流传入；
+  本地不传就跳过并提示）。清单里的 `appid` **由签名私钥推导** —— 与 crx 永远是同一把钥匙，
+  不会出现"清单写的 ID 和包对不上"这种失败。`codebase` 指向**该版本**的 crx 资产。
+- 上面那条 URL 用 `latest/download`，永远指向最新 Release 里的清单，用户因此能自动升级。
+- **绝对不要更换 crx 签名私钥** ✗：ID 是公钥的哈希，换钥匙 = 换 ID = 更新链断掉、
+  企业策略条目失效。密钥要离线备份（见上文"一把钥匙 = 一个扩展 ID"）。
+- xpi 侧**刻意不做**自更新：计划上架 AMO（listed），更新交给商店。
+
 ## 安装说明（也写在 README 里）
 
 - **xpi 未签名**：Firefox 正式版默认只装 AMO 签名的扩展。要装这份包，需要
