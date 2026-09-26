@@ -46,6 +46,7 @@ import {
   listReportQueue,
   matchUsers,
   overlayCounts,
+  overlayForList,
   removeOverlay,
 } from "../src/core/storage.ts";
 import { syncAll } from "../src/core/sync.ts";
@@ -162,7 +163,23 @@ async function adoptOnlineLocalLists(): Promise<void> {
   await patchConfig({
     localLists: config.localLists.filter((list) => !online.has(list.id)),
   });
-  console.info(`[xlear] 自建列表已在线：${adopted.map((list) => list.name).join("、")}`);
+  // 逐条把原本地条目提交上线：没带帖子的（补字段之前建的）留在本地覆盖里，只对自己生效。
+  for (const list of adopted) {
+    const entries = await overlayForList(list.id);
+    let submitted = 0;
+    for (const entry of entries) {
+      if (!entry.tweetId) continue;
+      const results = await submitBlockReport(
+        { userId: entry.userId, screenName: entry.screenName },
+        [list.id],
+        { id: entry.tweetId, url: entry.tweetUrl },
+      );
+      if (results.some((result) => result.status !== "queued")) submitted++;
+    }
+    console.info(
+      `[xlear] 自建列表已在线：${list.name}（提交 ${submitted}/${entries.length} 条，其余只留本地）`,
+    );
+  }
 }
 
 async function buildStatus(): Promise<StatusResponse> {
@@ -293,6 +310,9 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
           screenName: message.screenName,
           lists: localTargets,
           addedAt: Date.now(),
+          // 记下帖子：列表日后若被采纳，这条条目才有可复核的证据。
+          tweetId: message.tweetId,
+          tweetUrl: message.tweetUrl,
         });
         for (const listId of localTargets) results.push({ listId, status: "accepted" });
       }

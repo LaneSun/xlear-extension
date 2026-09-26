@@ -30,6 +30,14 @@ export interface OverlayRecord {
   screenName?: string;
   lists: string[];
   addedAt: number;
+  /**
+   * 用户点屏蔽时所在的那条帖子。
+   *
+   * 本地列表只要账号就够用，但采纳成在线列表后要按举报契约复核 —— 举报的证据是**帖子**，
+   * 所以这两项必须一起留下来。补上之前建的条目没有它们，就永远只做本地覆盖（不上传）。
+   */
+  tweetId?: string;
+  tweetUrl?: string;
 }
 
 export interface OutboxRecord {
@@ -208,6 +216,16 @@ export async function countOverlay(): Promise<number> {
   return await (await db()).count("overlay");
 }
 
+/** 某个列表在本地覆盖里的全部条目（采纳时逐条提交上线）。 */
+export async function overlayForList(listId: string): Promise<OverlayRecord[]> {
+  const database = await db();
+  const out: OverlayRecord[] = [];
+  for (const record of await database.getAll("overlay")) {
+    if (record.lists.includes(listId)) out.push(record);
+  }
+  return out;
+}
+
 /** 本地覆盖里每个列表各有多少账号（自建列表的条目数就是这么来的）。 */
 export async function overlayCounts(): Promise<Map<string, number>> {
   const database = await db();
@@ -226,6 +244,9 @@ export async function addOverlay(record: OverlayRecord): Promise<void> {
       ...existing,
       screenName: record.screenName ?? existing.screenName,
       lists: [...new Set([...existing.lists, ...record.lists])],
+      // 同一个账号可能从不同帖子被加进来，留最新的那条：举报只需要一条帖子作为证据。
+      tweetId: record.tweetId ?? existing.tweetId,
+      tweetUrl: record.tweetUrl ?? existing.tweetUrl,
     });
     return;
   }
