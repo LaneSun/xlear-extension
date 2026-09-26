@@ -1,10 +1,9 @@
-/**
- * 推送 `v*` 标签时出发布包并建 Release。
- *
- * 产物与本地 `pnpm run pack` 完全一致（同一套脚本），差别只在私钥来源：
- * 这里从仓库 secret `CRX_KEY` 取 —— 一把钥匙对应一个扩展 ID，丢了就得换 ID，
- * 因此它同时应该离线备份（见 docs/RELEASING.md）。
- */
+# 推送 `v*` 标签时出发布包并建 Release。
+#
+# 产物与本地 `pnpm run pack` 完全一致（同一套脚本），差别只在私钥来源：
+# 这里从仓库 secret `CRX_KEY` 取 —— 一把钥匙对应一个扩展 ID，丢了就得换 ID，
+# 因此它同时应该离线备份（见 docs/RELEASING.md）。
+
 name: release
 
 on:
