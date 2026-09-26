@@ -80,6 +80,21 @@ function Onboarding() {
     }
   }
 
+  /**
+   * 本地列表变动后的刷新：重新取一次 lists 并同时更新两组状态。
+   *
+   * 不复用 loadLists() —— 它还负责 stage 切换等首启流程，复用它会把流程副作用带进来；
+   * 这里只关心"数据变了，界面跟上"。
+   */
+  async function refreshLists(): Promise<void> {
+    const response = await sendMessage<ListsResponse>({
+      type: "lists",
+      force: true,
+    });
+    setLists(response.lists);
+    setLocal(response.local ?? []);
+  }
+
   async function loadLists(): Promise<void> {
     try {
       const response = await sendMessage<ListsResponse>({
@@ -179,15 +194,15 @@ function Onboarding() {
             rows={local}
             onCreate={async (name, reason) => {
               await sendMessage({ type: "createLocalList", name, reason });
-              await loadLists();
+              await refreshLists();
             }}
             onRename={async (id, name, reason) => {
               await sendMessage({ type: "renameLocalList", id, name, reason });
-              await loadLists();
+              await refreshLists();
             }}
             onDelete={async (id) => {
               await sendMessage({ type: "deleteLocalList", id });
-              await loadLists();
+              await refreshLists();
             }}
           />
           <Card
