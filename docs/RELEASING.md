@@ -21,19 +21,24 @@ gh secret set CRX_KEY --repo LaneSun/xlear-extension < ~/.local/share/xlear/crx-
 
 ## 发一个版本
 
+平时**不往 main 上堆**：每次开发开一个 `dev-<主题>` 书签，在其中提交并推送
+（`jj bookmark create dev-<主题> -r @` → `jj git push --bookmark dev-<主题>`）。
+只有维护者明确要求升版本时，才走下面这条路径 —— 版本号也只在那一刻改。
+
 ```bash
-# 1) 改 package.json 的 version（清单版本跟着它走）
+# 1) 维护者明确要求升版本后：改 package.json 的 version（清单版本跟着它走）
 # 2) 本地出一遍产物，确认能打包、能装
 pnpm run pack
 
-# 3) 提交并推送
-jj commit -m "发版 vX.Y.Z"
-jj bookmark set main -r @-
+# 3) 把 main 推进到要发布的提交并推送（= 合并到主分支）
+jj bookmark set main -r @
 jj git push --bookmark main
 
 # 4) 打标签并推送 → CI 自动建 Release 并挂产物
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
+
+发完版后从新的 main 再开开发分支继续（`jj new main` → `jj bookmark create dev-<下一个主题> -r @`）。
 
 `v*` 标签推上去后，`.github/workflows/release.yml` 会：装依赖 → 用 secret 里的私钥 →
 `pnpm run pack` → `gh release create`（附自动生成的 release notes）。

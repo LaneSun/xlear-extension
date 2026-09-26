@@ -46,6 +46,11 @@ Xlear 扩展的开发约定。设计与上手见 `README.md`；服务端在另�
    扩展对 X 的行为只有「隐藏帖子」这一项。
 5. 界面只讲结果：谁被收录、理由是什么；不展示平台内部的处理过程。
 6. 不读取、不记录、不哈希 IP；不留安装 ID 或设备标识。
+7. **开发在开发分支上做，main 只跟"要发布的版本"走**：功能与修复开一个 `dev-<主题>` 书签
+   （`jj bookmark create dev-<主题> -r @`）在其上提交，不往 main 上堆。
+   **只有维护者明确要求升版本时**，才把 main 推到要发布的那个提交（`jj bookmark set main -r @`）
+   并打 `vX.Y.Z` 标签；**版本号（`package.json` 的 `version`）也只在维护者明确指示时改**。
+   维护者明确要求的流程/文档修正可以直接进 main（这类改动不发版）。
 
 ## 工具链
 
@@ -122,6 +127,8 @@ docs/screenshots/ README 用的界面截图
   本地在 `~/.local/share/xlear/crx-key.pem`，CI 在仓库 secret `CRX_KEY`，两边都要离线备份。
 - 没有私钥时 `pnpm run pack` 会**直接失败**（不生成临时钥匙）—— 这是故意的。
 - 产物名与清单版本都来自 `package.json` 的 `version`；发版前先改它，再打 `vX.Y.Z` 标签。
+- **分支**：功能与修复走 `dev-<主题>`，main 只在发版时前进；版本号只在维护者明确指示时改
+  （硬性规则 7），改完与标签一起走。
 
 ## 依赖版本
 
@@ -131,9 +138,11 @@ docs/screenshots/ README 用的界面截图
 ## 提交
 
 用 `jj` 做版本管理，提交信息用中文，首行概括变更。不要用 `git commit`（`git` 仅用于底层协作）。
+开发走 `dev-<主题>` 分支，main 只在发版时前进；版本号只在维护者明确指示时改（见硬性规则）。
 
 ## 仓库状态
 
-- 版本 0.1.0。Chrome 与 Firefox 构建通过，`pnpm compile` 干净。
+- 版本 0.2.0，已发布 `v0.2.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
+  Chrome 与 Firefox 构建通过，`pnpm compile` 干净。
 - 测试在服务端仓库（算法与数据层）；本仓库以类型检查与真机构建验证为主。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。
