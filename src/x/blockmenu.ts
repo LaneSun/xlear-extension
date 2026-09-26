@@ -172,6 +172,12 @@ async function handleInterceptedBlock(
   deps: BlockMenuDeps,
 ): Promise<void> {
   // X 已经在打开它自己的确认弹窗，先藏起来。
+  // 一条能用的名单都没有时**不介入**：理由弹窗没有东西可选，插一脚只会挡住 X 自己的屏蔽流程。
+  // 判断放在最前面 —— 此时还没藏 X 的弹窗，直接返回等于我们不存在。
+  // 名单由调用方给定（已订阅的服务器列表 + 已启用的本地列表），这里再做一次防御性过滤。
+  const available = deps.lists().filter((list) => list.id.length > 0);
+  if (available.length === 0) return;
+
   suppressLayers();
   const dialogPresent = await waitFor(
     () => document.querySelector(SEL.dialog),
@@ -183,9 +189,6 @@ async function handleInterceptedBlock(
     return;
   }
 
-  const lists = deps.lists();
-  // 调用方给过来的已经是"当前算数的名单"（订阅 + 已启用的本地列表），这里只做一次防御性过滤。
-  const available = lists.filter((list) => list.id.length > 0);
   const result = await showReasonDialog({
     screenName: pending.screenName,
     lists: available.map((list) => ({
@@ -196,10 +199,8 @@ async function handleInterceptedBlock(
     strings: {
       title: t("dialog.title", { user: "{user}" }),
       ariaLabel: t("dialog.ariaLabel"),
-      emptyLists: t("dialog.emptyLists"),
       confirm: t("dialog.confirm"),
       processing: t("dialog.processing"),
-      blockOnly: t("dialog.blockOnly"),
       cancel: t("common.cancel"),
     },
   });
@@ -221,8 +222,6 @@ async function handleInterceptedBlock(
     5_000,
   );
   await dismissMenu();
-
-  if (result.kind === "blockOnly") return;
 
   // 本地先生效，再提交平台（平台不会立刻更新列表）。
   await deps.addOverlay(pending.userId, pending.screenName, result.listIds);

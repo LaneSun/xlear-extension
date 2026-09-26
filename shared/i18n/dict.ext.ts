@@ -46,12 +46,6 @@ export const EXT_DICT: Dict = {
     "ブロックの理由",
     "Причина блокировки",
   ],
-  "dialog.blockOnly": [
-    "Block only",
-    "仅屏蔽",
-    "ブロックのみ",
-    "Только блокировка",
-  ],
   "dialog.confirm": [
     "Report",
     "提交",
@@ -63,12 +57,6 @@ export const EXT_DICT: Dict = {
     "这些列表里已经有相同的提交了。",
     "これらのリストには同じ報告が既にあります。",
     "В этих списках уже есть такая заявка.",
-  ],
-  "dialog.emptyLists": [
-    "You have no list to use yet. Subscribe to some in the extension options, or create your own local list — then you can report together with blocking.",
-    "你还没有可用的名单。请先在扩展的「选项」里订阅列表，或新建自己的本地列表，之后就能一并提交。",
-    "利用できるリストがまだありません。拡張機能の設定で購読するか、自分のリストを作ると、ブロックと同時に報告できます。",
-    "У вас пока нет доступных списков. Подпишитесь в настройках расширения или создайте свой локальный список — тогда можно будет сообщать вместе с блокировкой.",
   ],
   "dialog.processing": ["Working…", "处理中…", "処理中…", "Обработка…"],
   "dialog.submitFailed": [

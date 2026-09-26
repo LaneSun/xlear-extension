@@ -22,7 +22,6 @@ export interface DialogList {
 
 export type DialogResult =
   | { kind: "confirm"; listIds: string[] }
-  | { kind: "blockOnly" }
   | { kind: "cancel" };
 
 export interface DialogOptions {
@@ -33,10 +32,8 @@ export interface DialogOptions {
     /** 含 {user} 占位符。 */
     title: string;
     ariaLabel: string;
-    emptyLists: string;
     confirm: string;
     processing: string;
-    blockOnly: string;
     cancel: string;
   };
 }
@@ -119,10 +116,9 @@ const DIALOG_CSS = `
   label.option input:checked::after { opacity: 1; }
   .name { display: block; font-weight: 700; }
   .reason { display: block; margin-top: 2px; color: var(--xlear-muted); font-size: 13px; line-height: 18px; }
-  p.empty { font-size: 14px; line-height: 20px; color: var(--xlear-muted); }
   /* 与 X 原生弹窗一致：两键之间 12px。 */
   .actions { display: flex; flex-direction: column; gap: 12px; }
-  /* 主操作与「仅屏蔽」并排占一行，取消单独一行，省纵向空间。 */
+  /* 主操作占一行，取消单独一行，省纵向空间。 */
   .actions .row { display: flex; gap: 12px; }
   .actions .row > button { flex: 1 1 0; min-width: 0; }
   button {
@@ -149,7 +145,8 @@ const DIALOG_CSS = `
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  options: { class?: string; text?: string; attrs?: Record<string, string> } = {},
+  options: { class?: string; text?: string; attrs?: Record<string, string> } =
+    {},
 ): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (options.class) node.className = options.class;
@@ -172,7 +169,11 @@ function buildSheet(
 
   const sheet = element("div", {
     class: "sheet",
-    attrs: { role: "dialog", "aria-modal": "true", "aria-label": strings.ariaLabel },
+    attrs: {
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": strings.ariaLabel,
+    },
   });
   sheet.addEventListener("click", (event) => event.stopPropagation());
 
@@ -193,40 +194,31 @@ function buildSheet(
     outcome({ kind: "confirm", listIds: [...selected] });
   });
 
+  // 调用方保证至少有一条名单：一条都没有时不该抢 X 自己的屏蔽流程（见 blockmenu）。
   const listsSection = element("div", { class: "lists-section" });
-  if (options.lists.length === 0) {
-    listsSection.append(element("p", { class: "empty", text: strings.emptyLists }));
-  } else {
-    const list = element("ul", { class: "lists" });
-    for (const item of options.lists) {
-      const checkbox = element("input", { attrs: { type: "checkbox" } });
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selected.add(item.id);
-        else selected.delete(item.id);
-        confirmButton.disabled = selected.size === 0;
-      });
-      const label = element("label", { class: "option" });
-      const text = element("span");
-      text.append(
-        element("span", { class: "name", text: item.name }),
-        element("span", { class: "reason", text: item.reason }),
-      );
-      label.append(checkbox, text);
-      const row = element("li");
-      row.append(label);
-      list.append(row);
-    }
-    listsSection.append(list);
+  const list = element("ul", { class: "lists" });
+  for (const item of options.lists) {
+    const checkbox = element("input", { attrs: { type: "checkbox" } });
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selected.add(item.id);
+      else selected.delete(item.id);
+      confirmButton.disabled = selected.size === 0;
+    });
+    const label = element("label", { class: "option" });
+    const text = element("span");
+    text.append(
+      element("span", { class: "name", text: item.name }),
+      element("span", { class: "reason", text: item.reason }),
+    );
+    label.append(checkbox, text);
+    const row = element("li");
+    row.append(label);
+    list.append(row);
   }
+  listsSection.append(list);
   sheet.append(listsSection);
 
   const actions = element("div", { class: "actions" });
-  const blockOnly = element("button", {
-    class: "ghost",
-    text: strings.blockOnly,
-    attrs: { type: "button" },
-  });
-  blockOnly.addEventListener("click", () => outcome({ kind: "blockOnly" }));
   const cancel = element("button", {
     class: "ghost",
     text: strings.cancel,
@@ -234,12 +226,12 @@ function buildSheet(
   });
   cancel.addEventListener("click", () => outcome({ kind: "cancel" }));
   const row = element("div", { class: "row" });
-  row.append(confirmButton, blockOnly);
+  row.append(confirmButton);
   actions.append(row, cancel);
   sheet.append(actions);
 
   backdrop.append(sheet);
-  return { backdrop, focusTarget: options.lists.length > 0 ? confirmButton : cancel };
+  return { backdrop, focusTarget: confirmButton };
 }
 
 export interface ConfirmOptions {
@@ -272,7 +264,9 @@ function buildConfirmSheet(
     },
   });
   sheet.addEventListener("click", (event) => event.stopPropagation());
-  sheet.append(element("h1", { text: strings.title.replaceAll("{user}", user) }));
+  sheet.append(
+    element("h1", { text: strings.title.replaceAll("{user}", user) }),
+  );
 
   const confirm = element("button", {
     class: "accent",
@@ -309,7 +303,9 @@ export function showConfirmDialog(options: ConfirmOptions): Promise<boolean> {
  * @param cancelValue Esc 或点遮罩时返回的值。
  */
 function openDialog<T>(
-  build: (settle: (value: T) => void) => { backdrop: HTMLElement; focusTarget: HTMLElement | null },
+  build: (
+    settle: (value: T) => void,
+  ) => { backdrop: HTMLElement; focusTarget: HTMLElement | null },
   cancelValue: T,
 ): Promise<T> {
   return new Promise<T>((resolve) => {
@@ -334,8 +330,9 @@ function openDialog<T>(
     host.id = HOST_ID;
     const shadow = host.attachShadow({ mode: "open" });
     const style = element("style");
-    style.textContent =
-      `:host { ${themeVariables(theme)} --xlear-sheet: ${theme.dark ? "#000000" : "#ffffff"}; }${DIALOG_CSS}`;
+    style.textContent = `:host { ${themeVariables(theme)} --xlear-sheet: ${
+      theme.dark ? "#000000" : "#ffffff"
+    }; }${DIALOG_CSS}`;
     shadow.append(style);
     document.body.append(host);
     document.addEventListener("keydown", onKey, true);
@@ -348,7 +345,9 @@ function openDialog<T>(
 }
 
 /** 打开理由弹窗，返回用户的选择。 */
-export function showReasonDialog(options: DialogOptions): Promise<DialogResult> {
+export function showReasonDialog(
+  options: DialogOptions,
+): Promise<DialogResult> {
   return openDialog<DialogResult>(
     (settle) => buildSheet(options, settle),
     { kind: "cancel" },
