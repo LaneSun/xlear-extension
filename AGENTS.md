@@ -142,7 +142,7 @@ docs/screenshots/ README 用的界面截图
 
 ## 仓库状态
 
-- 版本 0.2.0，已发布 `v0.2.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
+- 版本 0.3.0，已发布 `v0.2.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
   Chrome 与 Firefox 构建通过，`pnpm compile` 干净。
 - 测试在服务端仓库（算法与数据层）；本仓库以类型检查与真机构建验证为主。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。
