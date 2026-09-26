@@ -3,6 +3,7 @@ import type { Dict } from "./index.ts";
 
 export const COMMON_DICT: Dict = {
   "common.cancel": ["Cancel", "取消", "キャンセル", "Отмена"],
+  "common.close": ["Close", "关闭", "閉じる", "Закрыть"],
   "common.daysAgo": [
     "{n} days ago",
     "{n} 天前",
@@ -13,7 +14,12 @@ export const COMMON_DICT: Dict = {
   "common.disabled": ["Disabled", "停用", "無効", "Отключено"],
   "common.edit": ["Edit", "编辑", "編集", "Изменить"],
   "common.enabled": ["Enabled", "启用", "有効", "Включено"],
-  "common.hoursAgo": ["{n} hours ago", "{n} 小时前", "{n} 時間前", "{n} ч назад"],
+  "common.hoursAgo": [
+    "{n} hours ago",
+    "{n} 小时前",
+    "{n} 時間前",
+    "{n} ч назад",
+  ],
   "common.justNow": ["Just now", "刚刚", "たった今", "Только что"],
   "common.language": ["Language", "语言", "言語", "Язык"],
   "common.loading": ["Loading…", "载入中…", "読み込み中…", "Загрузка…"],

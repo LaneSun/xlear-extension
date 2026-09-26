@@ -8,18 +8,26 @@
  * 4. 用户确认 → 取消隐藏 → 点 X 的确认按钮（X 发出真正的屏蔽请求）
  *    → 同时把这次动作提交到平台，并写入本地覆盖让效果立刻生效。
  */
-import type { ListSummary } from "../../shared/types.ts";
 import { t } from "../i18n.content.ts";
 import { isReasonDialogOpen, showReasonDialog } from "./dialog.ts";
-import { dismissMenu, simulateClick, suppressLayers, unsuppressLayers, waitFor } from "./executor.ts";
+import {
+  dismissMenu,
+  simulateClick,
+  suppressLayers,
+  unsuppressLayers,
+  waitFor,
+} from "./executor.ts";
 import { ATTR, SEL } from "./selectors.ts";
 
 /** 等 X 的更多菜单出现的时间；超过就认为这条走不通。 */
 const BLOCK_MENU_TIMEOUT_MS = 2_500;
 
 export interface BlockMenuDeps {
-  /** 订阅列表（含理由），由后台提供。 */
-  lists: () => ListSummary[];
+  /**
+   * 可以拿来当举报理由的名单：后台下发的已订阅服务器列表，加上已启用的本地列表。
+   * 这里只要弹窗真正用到的三个字段，不必是完整的目录条目。
+   */
+  lists: () => { id: string; name: string; reason: string }[];
   /** 提交举报；返回给用户看的提示文案。 */
   submit: (
     target: { userId: string; screenName?: string },
@@ -27,7 +35,11 @@ export interface BlockMenuDeps {
     tweet: { id: string; url?: string; text?: string },
   ) => Promise<string | null>;
   /** 本地覆盖：让这次提交立刻生效。 */
-  addOverlay: (userId: string, screenName: string | undefined, listIds: string[]) => Promise<void>;
+  addOverlay: (
+    userId: string,
+    screenName: string | undefined,
+    listIds: string[],
+  ) => Promise<void>;
   /** 把提交结果告知用户（失败时必须让用户看见，不能只进 console）。 */
   notify?: (userId: string, message: string) => void;
 }
@@ -68,7 +80,9 @@ export function installBlockMenuInterceptor(deps: BlockMenuDeps): void {
     const isBlock = menuItem.matches(SEL.blockItem) ||
       menuItem.querySelector(SEL.blockItem) !== null;
     const isMute = !isBlock &&
-      menuItem.querySelector("svg path")?.getAttribute("d")?.startsWith("M16 22h-2.35") === true;
+      menuItem.querySelector("svg path")?.getAttribute("d")?.startsWith(
+          "M16 22h-2.35",
+        ) === true;
     if (!isBlock && !isMute) return;
 
     // 卡片按钮发起的原生屏蔽：交给 X 自己走它的确认弹窗，我们不插手。
@@ -115,7 +129,9 @@ export async function startBlockOnX(article: Element): Promise<string | null> {
 function findBlockMenuItem(): HTMLElement | null {
   for (const item of document.querySelectorAll<HTMLElement>(SEL.menuItem)) {
     if (!item.closest(SEL.menu)) continue;
-    if (item.matches(SEL.blockItem) || item.querySelector(SEL.blockItem)) return item;
+    if (item.matches(SEL.blockItem) || item.querySelector(SEL.blockItem)) {
+      return item;
+    }
   }
   return null;
 }
@@ -128,7 +144,9 @@ function findArticleFromMenu(menuItem: Element): Element | null {
   const link = layers.querySelector('a[href^="/"]:not([href^="/i/"])');
   const handle = link?.getAttribute("href")?.split("/")[1];
   if (!handle) return null;
-  return document.querySelector(`${SEL.tweet}[${ATTR.name}="${CSS.escape(handle)}"]`);
+  return document.querySelector(
+    `${SEL.tweet}[${ATTR.name}="${CSS.escape(handle)}"]`,
+  );
 }
 
 function readPendingTarget(article: Element): PendingTarget | null {
@@ -149,10 +167,16 @@ function readPendingTarget(article: Element): PendingTarget | null {
   };
 }
 
-async function handleInterceptedBlock(pending: PendingTarget, deps: BlockMenuDeps): Promise<void> {
+async function handleInterceptedBlock(
+  pending: PendingTarget,
+  deps: BlockMenuDeps,
+): Promise<void> {
   // X 已经在打开它自己的确认弹窗，先藏起来。
   suppressLayers();
-  const dialogPresent = await waitFor(() => document.querySelector(SEL.dialog), 2_000);
+  const dialogPresent = await waitFor(
+    () => document.querySelector(SEL.dialog),
+    2_000,
+  );
   if (!dialogPresent) {
     // 没等到 X 的弹窗（例如它是直接屏蔽、无确认），此时不必插入我们的流程。
     unsuppressLayers();
@@ -160,11 +184,15 @@ async function handleInterceptedBlock(pending: PendingTarget, deps: BlockMenuDep
   }
 
   const lists = deps.lists();
-  // 调用方给过来的已经限定为"用户已订阅"的列表，这里只做一次防御性过滤。
+  // 调用方给过来的已经是"当前算数的名单"（订阅 + 已启用的本地列表），这里只做一次防御性过滤。
   const available = lists.filter((list) => list.id.length > 0);
   const result = await showReasonDialog({
     screenName: pending.screenName,
-    lists: available.map((list) => ({ id: list.id, name: list.name, reason: list.reason })),
+    lists: available.map((list) => ({
+      id: list.id,
+      name: list.name,
+      reason: list.reason,
+    })),
     strings: {
       title: t("dialog.title", { user: "{user}" }),
       ariaLabel: t("dialog.ariaLabel"),
@@ -188,7 +216,10 @@ async function handleInterceptedBlock(pending: PendingTarget, deps: BlockMenuDep
   unsuppressLayers();
   const confirm = document.querySelector<HTMLElement>(SEL.confirmButton);
   if (confirm) simulateClick(confirm);
-  await waitFor(() => (document.querySelector(SEL.dialog) ? null : true), 5_000);
+  await waitFor(
+    () => (document.querySelector(SEL.dialog) ? null : true),
+    5_000,
+  );
   await dismissMenu();
 
   if (result.kind === "blockOnly") return;

@@ -14,6 +14,7 @@ import {
   loadAccountKey,
   loadConfig,
   loadState,
+  type LocalList,
   mutateState,
   patchConfig,
   todayKey,
@@ -52,6 +53,7 @@ import {
   overlayCounts,
   overlayForList,
   removeOverlay,
+  removeOverlayFromList,
   removeOverlayList,
 } from "../src/core/storage.ts";
 import { syncAll } from "../src/core/sync.ts";
@@ -314,8 +316,14 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   switch (message.type) {
     case "match": {
       // 总开关在后台生效：关掉时一律返回"没有命中"，内容脚本据此不隐藏任何帖子。
+      // 停用的本地列表同样不参与判定：条目还在，只是现在不算数。
+      const disabled = new Set(
+        config.localLists.filter((list) => !list.enabled).map((list) =>
+          list.id
+        ),
+      );
       const matches = config.enabled
-        ? await matchUsers(message.userIds)
+        ? await matchUsers(message.userIds, disabled)
         : new Map();
       const response: MatchResponse = {
         matches: [...matches.entries()].map(([userId, info]) => ({
@@ -327,24 +335,17 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     }
     case "lists": {
       const lists = await getLists(message.force);
-      // 界面把自建列表排在最前面；同步路径用的是**不含本地列表**的目录（见 runSync）。
+      // `lists` 只有服务器列表：本地列表走 `local`，两者的差别（订阅数、版本、是否同步）
+      // 是界面要显示的东西，混在一起就会让欢迎页把本地列表当成可订阅项。
       const counts = await overlayCounts();
-      const local: ListSummary[] = config.localLists.map((list) => ({
-        id: list.id,
-        name: list.name,
-        reason: list.reason,
-        entryCount: counts.get(list.id) ?? 0,
-        subscriberCount: 0,
-        version: 0,
-        updatedAt: list.createdAt,
-      }));
       const response: ListsResponse = {
-        lists: [...local, ...lists],
+        lists,
         local: config.localLists.map((list) => ({
           id: list.id,
           name: list.name,
           reason: list.reason,
           entries: counts.get(list.id) ?? 0,
+          enabled: list.enabled,
         })),
         subscriptions: config.subscriptions,
         locale: config.locale,
@@ -359,10 +360,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       }
       // 列表在本地诞生：只落盘，**不进订阅** —— 订阅的语义是"要从服务器同步的列表"，
       // 而它此刻在服务器上并不存在。它在本地可用靠的是本地覆盖与匹配，不需要网络。
-      const list = {
+      const list: LocalList = {
         id: crypto.randomUUID(),
         name,
         reason,
+        enabled: true,
         createdAt: Date.now(),
       };
       await patchConfig({ localLists: [...config.localLists, list] });
@@ -372,7 +374,21 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         reason: list.reason,
         ...(config.locale === "auto" ? {} : { locale: config.locale }),
       }).catch(() => undefined);
+      await notifyXTabs();
       return { id: list.id } satisfies LocalListResponse;
+    }
+    case "setLocalListEnabled": {
+      if (!config.localLists.some((list) => list.id === message.id)) {
+        return { ok: false };
+      }
+      await patchConfig({
+        localLists: config.localLists.map((list) =>
+          list.id === message.id ? { ...list, enabled: message.enabled } : list
+        ),
+      });
+      // 生效与否直接改变"哪些帖子该隐藏"和屏蔽弹窗里的可选项，打开的 X 标签页要立刻重算。
+      await notifyXTabs();
+      return { ok: true } satisfies { ok: boolean };
     }
     case "renameLocalList": {
       const name = message.name.trim();
@@ -387,6 +403,8 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
           list.id === message.id ? { ...list, name, reason } : list
         ),
       });
+      // 卡片上显示的就是列表名，改名之后已经打开的 X 标签页也要跟着换。
+      await notifyXTabs();
       return { ok: true } satisfies { ok: boolean };
     }
     case "deleteLocalList": {
@@ -398,6 +416,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         localLists: config.localLists.filter((list) => list.id !== message.id),
         subscriptions: config.subscriptions.filter((id) => id !== message.id),
       });
+      await notifyXTabs();
       return { ok: true } satisfies { ok: boolean };
     }
     case "submitReport": {
@@ -487,7 +506,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return response;
     }
     case "dropOverlay": {
-      await removeOverlay(message.userId);
+      if (message.listId) {
+        await removeOverlayFromList(message.userId, message.listId);
+      } else {
+        await removeOverlay(message.userId);
+      }
       await notifyXTabs();
       return { ok: true };
     }

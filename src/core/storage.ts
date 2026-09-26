@@ -7,7 +7,7 @@
  * - `allow`：用户手动「仍然显示」的账号，优先级最高；
  * - `outbox`：提交失败待重试的举报。
  */
-import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 export interface FilteredRecord {
   userId: string;
@@ -83,7 +83,9 @@ function db(): Promise<IDBPDatabase<XlearDB>> {
   if (!dbPromise) {
     dbPromise = openDB<XlearDB>(DB_NAME, DB_VERSION, {
       upgrade(database) {
-        const filtered = database.createObjectStore("filtered", { keyPath: "userId" });
+        const filtered = database.createObjectStore("filtered", {
+          keyPath: "userId",
+        });
         filtered.createIndex("byList", "lists", { multiEntry: true });
         database.createObjectStore("overlay", { keyPath: "userId" });
         database.createObjectStore("allow", { keyPath: "userId" });
@@ -101,6 +103,8 @@ function db(): Promise<IDBPDatabase<XlearDB>> {
 /** 批量判断账号是否命中过滤库。返回的 Map 只包含命中的账号。 */
 export async function matchUsers(
   userIds: readonly string[],
+  /** 不参与判定的列表（停用的本地列表）：它们的条目仍然留着，只是现在不算数。 */
+  skipLists?: ReadonlySet<string>,
 ): Promise<Map<string, { lists: string[] }>> {
   const result = new Map<string, { lists: string[] }>();
   if (userIds.length === 0) return result;
@@ -112,7 +116,9 @@ export async function matchUsers(
     Promise.all(userIds.map((id) => database.get("allow", id))),
   ]);
   const allowedIds = new Set(
-    allowed.filter((record) => record !== undefined).map((record) => record.userId),
+    allowed.filter((record) => record !== undefined).map((record) =>
+      record.userId
+    ),
   );
   for (const record of filtered) {
     if (!record || allowedIds.has(record.userId)) continue;
@@ -120,12 +126,16 @@ export async function matchUsers(
   }
   for (const record of overlay) {
     if (!record || allowedIds.has(record.userId)) continue;
+    const lists = skipLists && skipLists.size > 0
+      ? record.lists.filter((id) => !skipLists.has(id))
+      : record.lists;
+    if (lists.length === 0) continue;
     const existing = result.get(record.userId);
     if (existing) {
       // 官方条目与本地覆盖都命中同一个账号：列表取并集，卡片上只列一次。
-      existing.lists = [...new Set([...existing.lists, ...record.lists])];
+      existing.lists = [...new Set([...existing.lists, ...lists])];
     } else {
-      result.set(record.userId, { lists: [...record.lists] });
+      result.set(record.userId, { lists: [...lists] });
     }
   }
   return result;
@@ -145,8 +155,14 @@ export async function applyChanges(
     if (op.op === "add") {
       if (existing) {
         const screenName = existing.screenName ?? op.screenName;
-        if (!existing.lists.includes(listId) || screenName !== existing.screenName) {
-          await store.put({ ...existing, screenName, lists: [...existing.lists, listId] });
+        if (
+          !existing.lists.includes(listId) || screenName !== existing.screenName
+        ) {
+          await store.put({
+            ...existing,
+            screenName,
+            lists: [...existing.lists, listId],
+          });
         }
       } else {
         await store.put({
@@ -194,7 +210,10 @@ export async function replaceListSnapshot(
     const existing = await writeStore.get(userId);
     if (existing) {
       if (!existing.lists.includes(listId)) {
-        await writeStore.put({ ...existing, lists: [...existing.lists, listId] });
+        await writeStore.put({
+          ...existing,
+          lists: [...existing.lists, listId],
+        });
       }
     } else {
       await writeStore.put({ userId, lists: [listId], at: now });
@@ -249,7 +268,9 @@ export async function overlayCounts(): Promise<Map<string, number>> {
   const database = await db();
   const counts = new Map<string, number>();
   for (const record of await database.getAll("overlay")) {
-    for (const listId of record.lists) counts.set(listId, (counts.get(listId) ?? 0) + 1);
+    for (const listId of record.lists) {
+      counts.set(listId, (counts.get(listId) ?? 0) + 1);
+    }
   }
   return counts;
 }
@@ -275,6 +296,23 @@ export async function removeOverlay(userId: string): Promise<void> {
   await (await db()).delete("overlay", userId);
 }
 
+/**
+ * 从某个账号的本地覆盖里摘掉一个列表（在列表的条目视图里移除时用）。
+ *
+ * 与 `removeOverlayList` 是一对：那个按列表删全部账号，这个按账号删一个列表。
+ */
+export async function removeOverlayFromList(
+  userId: string,
+  listId: string,
+): Promise<void> {
+  const database = await db();
+  const record = await database.get("overlay", userId);
+  if (!record) return;
+  const lists = record.lists.filter((id) => id !== listId);
+  if (lists.length === 0) await database.delete("overlay", userId);
+  else await database.put("overlay", { ...record, lists });
+}
+
 export async function listOverlay(): Promise<OverlayRecord[]> {
   return await (await db()).getAll("overlay");
 }
@@ -285,7 +323,10 @@ export async function listOverlay(): Promise<OverlayRecord[]> {
  * 记下 screenName：列表页要显示成 @handle。早期只存 userId，界面上只能摆一串数字，
  * 用户根本认不出是谁；下面 `listAllowed` 会为这类历史记录从本地库里补回名字。
  */
-export async function allowUser(userId: string, screenName?: string): Promise<void> {
+export async function allowUser(
+  userId: string,
+  screenName?: string,
+): Promise<void> {
   const existing = await (await db()).get("allow", userId);
   await (await db()).put("allow", {
     userId,
@@ -346,7 +387,9 @@ export interface ExportBundle {
   outbox: OutboxRecord[];
 }
 
-export async function exportAll(): Promise<Omit<ExportBundle, "config" | "accountKey">> {
+export async function exportAll(): Promise<
+  Omit<ExportBundle, "config" | "accountKey">
+> {
   const database = await db();
   return {
     version: 1,
@@ -358,14 +401,23 @@ export async function exportAll(): Promise<Omit<ExportBundle, "config" | "accoun
   };
 }
 
-export async function importAll(bundle: Omit<ExportBundle, "config" | "accountKey">): Promise<void> {
+export async function importAll(
+  bundle: Omit<ExportBundle, "config" | "accountKey">,
+): Promise<void> {
   const database = await db();
-  const tx = database.transaction(["filtered", "overlay", "allow", "outbox"], "readwrite");
+  const tx = database.transaction(
+    ["filtered", "overlay", "allow", "outbox"],
+    "readwrite",
+  );
   for (const storeName of ["filtered", "overlay", "allow", "outbox"] as const) {
     await tx.objectStore(storeName).clear();
   }
-  for (const record of bundle.filtered) await tx.objectStore("filtered").put(record);
-  for (const record of bundle.overlay) await tx.objectStore("overlay").put(record);
+  for (const record of bundle.filtered) {
+    await tx.objectStore("filtered").put(record);
+  }
+  for (const record of bundle.overlay) {
+    await tx.objectStore("overlay").put(record);
+  }
   for (const record of bundle.allow) await tx.objectStore("allow").put(record);
   for (const record of bundle.outbox) {
     const { id, ...rest } = record;
@@ -377,7 +429,10 @@ export async function importAll(bundle: Omit<ExportBundle, "config" | "accountKe
 /** 清空所有本地数据（用于「重置扩展」）。 */
 export async function clearAll(): Promise<void> {
   const database = await db();
-  const tx = database.transaction(["filtered", "overlay", "allow", "outbox"], "readwrite");
+  const tx = database.transaction(
+    ["filtered", "overlay", "allow", "outbox"],
+    "readwrite",
+  );
   for (const storeName of ["filtered", "overlay", "allow", "outbox"] as const) {
     await tx.objectStore(storeName).clear();
   }

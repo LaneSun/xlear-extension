@@ -1,5 +1,8 @@
 import type { LocalListRow } from "../../src/core/messaging.ts";
-import { LocalListsPanel } from "../../src/ui/components.tsx";
+import {
+  type LocalListEntry,
+  LocalListsPanel,
+} from "../../src/ui/components.tsx";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
@@ -164,6 +167,7 @@ function Options() {
     name: list.name,
     reason: list.reason,
     entries: entriesBy.get(list.id) ?? 0,
+    enabled: list.enabled,
   }));
 
   const patchConfigValue = (patch: Partial<ExtensionConfig>) =>
@@ -355,6 +359,31 @@ function Options() {
           onDelete={async (id) => {
             await sendMessage({ type: "deleteLocalList", id });
             await load();
+          }}
+          onToggleLocal={(id, enabled) =>
+            void run(async () => {
+              await sendMessage({ type: "setLocalListEnabled", id, enabled });
+            })}
+          entries={{
+            // 条目视图读的是本地覆盖：同一个账号可能同时在几个列表里，这里只取该列表命中的那些。
+            load: async (listId) => {
+              const response = await sendMessage<OverlayListResponse>({
+                type: "overlayList",
+              });
+              return response.overlay
+                .filter((record) => record.lists.includes(listId))
+                .map((record) => ({
+                  userId: record.userId,
+                  screenName: record.screenName,
+                  tweetUrl: record.tweetUrl,
+                }));
+            },
+            // 只摘掉这个列表：同一条覆盖记录里的其他列表不受影响。
+            remove: async (listId, userId) => {
+              await sendMessage({ type: "dropOverlay", userId, listId });
+              // 行上的"条目数"来自页面数据，移除之后要一起刷新。
+              await load();
+            },
           }}
         />
       )}
@@ -587,10 +616,13 @@ function ListsPanel(
     onCreate: (name: string, reason: string) => Promise<void>;
     onRename: (id: string, name: string, reason: string) => Promise<void>;
     onDelete: (id: string) => Promise<void>;
+    onToggleLocal: (id: string, enabled: boolean) => void;
+    entries: {
+      load: (listId: string) => Promise<LocalListEntry[]>;
+      remove: (listId: string, userId: string) => Promise<void>;
+    };
   },
 ) {
-  const localIds = new Set(props.localRows.map((row) => row.id));
-  const serverLists = props.lists.filter((list) => !localIds.has(list.id));
   return (
     <>
       <LocalListsPanel
@@ -599,6 +631,8 @@ function ListsPanel(
         onCreate={props.onCreate}
         onRename={props.onRename}
         onDelete={props.onDelete}
+        onToggle={props.onToggleLocal}
+        entries={props.entries}
       />
       <Card
         title={t("options.lists.title")}
@@ -606,7 +640,7 @@ function ListsPanel(
         icon={ListChecks}
       >
         <ListPicker
-          lists={serverLists}
+          lists={props.lists}
           isSelected={(id) => props.subscribed.has(id)}
           onToggle={props.onChange}
           busy={props.busy}

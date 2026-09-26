@@ -1,12 +1,14 @@
 /** 弹窗与设置页共用的小组件。图标统一从 lucide 取，尺寸与线宽由 Icon 兜住。 */
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
 import {
+  Ellipsis,
   ListPlus,
   type LucideIcon,
   type LucideProps,
   Search,
+  X,
 } from "lucide-preact";
 import { t } from "../i18n.ts";
 import type { LocalListRow } from "../core/messaging.ts";
@@ -294,11 +296,168 @@ export function ListPicker(
   );
 }
 
+/** 一个本地列表里的账号；与本地覆盖里的一条记录对应。 */
+export interface LocalListEntry {
+  userId: string;
+  screenName?: string;
+  tweetUrl?: string;
+}
+
+/** 行尾的「…」：一个列表的次要操作收在一处，行本身保持与订阅列表同一套观感。 */
+function RowMenu(
+  props: {
+    label: string;
+    disabled?: boolean;
+    items: { label: string; tone?: "danger"; onSelect: () => void }[];
+  },
+) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // 菜单是临时的：点到别处或按 Esc 就收起来，不会一直挂在页面上。
+    const onPointerDown = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span class="xl-menu-wrap" ref={root}>
+      <button
+        type="button"
+        class="xl-icon-btn"
+        aria-label={props.label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={props.disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon icon={Ellipsis} size={18} />
+      </button>
+      {open && (
+        <div class="xl-menu" role="menu">
+          {props.items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              class={item.tone === "danger"
+                ? "xl-menu-item xl-menu-item-danger"
+                : "xl-menu-item"}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** 条目视图：一个本地列表里都有谁 —— 名单是列表，这里才是名单里的人。 */
+function EntriesDialog(
+  props: {
+    name: string;
+    entries: LocalListEntry[];
+    loading: boolean;
+    error: string;
+    busy?: boolean;
+    onRemove: (userId: string) => void;
+    onClose: () => void;
+  },
+) {
+  const title = t("lists.entries.title", { name: props.name });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") props.onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  });
+
+  return (
+    <div class="xl-modal-backdrop" onClick={props.onClose}>
+      <div
+        class="xl-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div class="xl-modal-head">
+          <h3 class="xl-modal-title">{title}</h3>
+          <button
+            type="button"
+            class="xl-icon-btn"
+            aria-label={t("common.close")}
+            onClick={props.onClose}
+          >
+            <Icon icon={X} size={18} />
+          </button>
+        </div>
+        {props.loading
+          ? <Spinner />
+          : props.entries.length === 0
+          ? <p class="xl-list-empty">{t("lists.entries.empty")}</p>
+          : (
+            <ul class="xl-entry-list">
+              {props.entries.map((entry) => (
+                <li key={entry.userId} class="xl-entry-row">
+                  <span class="xl-entry-name">
+                    {entry.tweetUrl
+                      ? (
+                        <a
+                          href={entry.tweetUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {`@${entry.screenName ?? entry.userId}`}
+                        </a>
+                      )
+                      : `@${entry.screenName ?? entry.userId}`}
+                  </span>
+                  <button
+                    type="button"
+                    class="xl-btn xl-btn-ghost"
+                    disabled={props.busy}
+                    onClick={() =>
+                      props.onRemove(entry.userId)}
+                  >
+                    {t("options.overlay.remove")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        {props.error.length > 0 && (
+          <p class="xl-muted" style="margin: 0; font-size: 12px;">
+            {props.error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
- * 「我的本地列表」：本地列表有自己的管理入口。
+ * 「我的本地列表」：本地列表有自己的管理入口，行与订阅列表共用同一套观感。
  *
- * 它与服务器列表是两种东西：条目只在本机、随时可改可删；名称与理由在创建时交过一份记录，
- * 之后就与服务器无关了 —— 所以这里既不显示订阅数，也没有"订阅"这个动作。
+ * 勾选的含义与订阅列表一致 —— 算不算数：停用的列表不再隐藏账号，也不出现在屏蔽理由弹窗里，
+ * 但条目原样留着（名字与理由在创建时交过一份记录，之后就与服务器无关）。
  */
 export function LocalListsPanel(
   props: {
@@ -311,6 +470,11 @@ export function LocalListsPanel(
       reason: string,
     ) => void | Promise<void>;
     onDelete: (id: string) => void | Promise<void>;
+    onToggle: (id: string, enabled: boolean) => void | Promise<void>;
+    entries: {
+      load: (listId: string) => Promise<LocalListEntry[]>;
+      remove: (listId: string, userId: string) => Promise<void>;
+    };
   },
 ) {
   const [creating, setCreating] = useState(false);
@@ -318,6 +482,10 @@ export function LocalListsPanel(
   const [name, setName] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [viewing, setViewing] = useState("");
+  const [entries, setEntries] = useState<LocalListEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [entriesError, setEntriesError] = useState("");
 
   async function run(action: () => void | Promise<void>): Promise<void> {
     setError("");
@@ -332,159 +500,228 @@ export function LocalListsPanel(
     }
   }
 
+  async function openEntries(listId: string): Promise<void> {
+    setViewing(listId);
+    setEntries([]);
+    setEntriesError("");
+    setEntriesLoading(true);
+    try {
+      setEntries(await props.entries.load(listId));
+    } catch (caught) {
+      setEntriesError(
+        caught instanceof Error ? caught.message : String(caught),
+      );
+    } finally {
+      setEntriesLoading(false);
+    }
+  }
+
+  async function removeEntry(listId: string, userId: string): Promise<void> {
+    await run(async () => {
+      await props.entries.remove(listId, userId);
+      setEntries(await props.entries.load(listId));
+    });
+  }
+
+  const viewingRow = props.rows.find((row) => row.id === viewing) ?? null;
+
   return (
-    <Card
-      title={t("lists.mine.title")}
-      icon={ListPlus}
-    >
-      {props.rows.length === 0 && !creating && (
-        <p class="xl-list-empty">{t("lists.mine.empty")}</p>
-      )}
-      {props.rows.map((row) => (
-        <div key={row.id} class="xl-local-row">
-          {editing === row.id
-            ? (
-              <div class="xl-create-form">
-                <input
-                  class="xl-input"
-                  value={name}
-                  maxLength={60}
-                  placeholder={t("lists.createName")}
-                  onInput={(event) =>
-                    setName((event.target as HTMLInputElement).value)}
-                />
-                <textarea
-                  class="xl-input"
-                  value={reason}
-                  maxLength={300}
-                  placeholder={t("lists.createReason")}
-                  onInput={(event) =>
-                    setReason((event.target as HTMLTextAreaElement).value)}
-                />
-                <div class="xl-create-actions">
-                  <button
-                    type="button"
-                    class="xl-btn xl-btn-primary"
-                    disabled={props.busy || name.trim().length === 0 ||
-                      reason.trim().length === 0}
-                    onClick={() =>
-                      void run(() =>
-                        props.onRename(row.id, name.trim(), reason.trim())
-                      )}
-                  >
-                    {t("common.save")}
-                  </button>
-                  <button
-                    type="button"
-                    class="xl-btn xl-btn-ghost"
-                    onClick={() => setEditing("")}
-                  >
-                    {t("lists.createCancel")}
-                  </button>
-                </div>
-              </div>
-            )
-            : (
-              <>
-                <div class="xl-local-head">
-                  <span class="xl-list-name">{row.name}</span>
-                  <Chip>{t("lists.mine.local")}</Chip>
-                  <Chip>
-                    {`${
-                      t("lists.mine.entries")
-                    } ${row.entries.toLocaleString()}`}
-                  </Chip>
-                </div>
-                <span class="xl-list-reason">{row.reason}</span>
-                <div class="xl-local-actions">
-                  <button
-                    type="button"
-                    class="xl-btn xl-btn-ghost"
-                    disabled={props.busy}
-                    onClick={() => {
-                      setName(row.name);
-                      setReason(row.reason);
-                      setEditing(row.id);
-                    }}
-                  >
-                    {t("lists.mine.rename")}
-                  </button>
-                  <button
-                    type="button"
-                    class="xl-btn xl-btn-ghost"
-                    disabled={props.busy}
-                    onClick={() => {
-                      if (globalThis.confirm(t("lists.mine.deleteConfirm"))) {
-                        void run(() => props.onDelete(row.id));
-                      }
-                    }}
-                  >
-                    {t("lists.mine.delete")}
-                  </button>
-                </div>
-              </>
-            )}
-        </div>
-      ))}
-      {creating
-        ? (
-          <div class="xl-create-form">
-            <input
-              class="xl-input"
-              value={name}
-              maxLength={60}
-              placeholder={t("lists.createName")}
-              onInput={(event) =>
-                setName((event.target as HTMLInputElement).value)}
-            />
-            <textarea
-              class="xl-input"
-              value={reason}
-              maxLength={300}
-              placeholder={t("lists.createReason")}
-              onInput={(event) =>
-                setReason((event.target as HTMLTextAreaElement).value)}
-            />
-            <div class="xl-create-actions">
-              <button
-                type="button"
-                class="xl-btn xl-btn-primary"
-                disabled={props.busy || name.trim().length === 0 ||
-                  reason.trim().length === 0}
-                onClick={() =>
-                  void run(() => props.onCreate(name.trim(), reason.trim()))}
-              >
-                {t("lists.createSubmit")}
-              </button>
-              <button
-                type="button"
-                class="xl-btn xl-btn-ghost"
-                onClick={() => setCreating(false)}
-              >
-                {t("lists.createCancel")}
-              </button>
-            </div>
-          </div>
-        )
-        : (
-          <button
-            type="button"
-            class="xl-btn xl-btn-primary"
-            disabled={props.busy}
-            onClick={() => {
-              setName("");
-              setReason("");
-              setCreating(true);
-            }}
-          >
-            {t("lists.create")}
-          </button>
+    <>
+      <Card
+        title={t("lists.mine.title")}
+        icon={ListPlus}
+      >
+        {props.rows.length === 0 && !creating && (
+          <p class="xl-list-empty">{t("lists.mine.empty")}</p>
         )}
-      {error.length > 0 && (
-        <p class="xl-muted" style="margin: 8px 0 0; font-size: 12px;">
-          {error}
-        </p>
+        {props.rows.length > 0 && (
+          <div class="xl-list-rows">
+            {props.rows.map((row) => (
+              <div key={row.id} class="xl-list-row">
+                {editing === row.id
+                  ? (
+                    <div class="xl-create-form">
+                      <input
+                        class="xl-input"
+                        value={name}
+                        maxLength={60}
+                        placeholder={t("lists.createName")}
+                        onInput={(event) =>
+                          setName((event.target as HTMLInputElement).value)}
+                      />
+                      <textarea
+                        class="xl-input"
+                        value={reason}
+                        maxLength={300}
+                        placeholder={t("lists.createReason")}
+                        onInput={(event) =>
+                          setReason(
+                            (event.target as HTMLTextAreaElement).value,
+                          )}
+                      />
+                      <div class="xl-create-actions">
+                        <button
+                          type="button"
+                          class="xl-btn xl-btn-primary"
+                          disabled={props.busy || name.trim().length === 0 ||
+                            reason.trim().length === 0}
+                          onClick={() =>
+                            void run(() =>
+                              props.onRename(row.id, name.trim(), reason.trim())
+                            )}
+                        >
+                          {t("common.save")}
+                        </button>
+                        <button
+                          type="button"
+                          class="xl-btn xl-btn-ghost"
+                          onClick={() => setEditing("")}
+                        >
+                          {t("lists.createCancel")}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                  : (
+                    <>
+                      <label class="xl-list-toggle">
+                        <input
+                          type="checkbox"
+                          checked={row.enabled}
+                          disabled={props.busy}
+                          aria-label={t("lists.mine.apply", { name: row.name })}
+                          onChange={(event) =>
+                            void run(() =>
+                              props.onToggle(
+                                row.id,
+                                (event.target as HTMLInputElement).checked,
+                              )
+                            )}
+                        />
+                        <span class="xl-list-body">
+                          <span class="xl-list-head">
+                            <span class="xl-list-name">{row.name}</span>
+                            {!row.enabled && (
+                              <Chip>{t("common.disabled")}</Chip>
+                            )}
+                            <Chip>{t("lists.mine.local")}</Chip>
+                            <Chip>
+                              {t("list.entries", {
+                                n: row.entries.toLocaleString(),
+                              })}
+                            </Chip>
+                          </span>
+                          <span class="xl-list-reason">{row.reason}</span>
+                        </span>
+                      </label>
+                      <RowMenu
+                        label={t("lists.mine.more")}
+                        disabled={props.busy}
+                        items={[
+                          {
+                            label: t("lists.mine.viewEntries"),
+                            onSelect: () => void openEntries(row.id),
+                          },
+                          {
+                            label: t("lists.mine.rename"),
+                            onSelect: () => {
+                              setName(row.name);
+                              setReason(row.reason);
+                              setEditing(row.id);
+                            },
+                          },
+                          {
+                            label: t("lists.mine.delete"),
+                            tone: "danger",
+                            onSelect: () => {
+                              if (
+                                globalThis.confirm(
+                                  t("lists.mine.deleteConfirm"),
+                                )
+                              ) {
+                                void run(() => props.onDelete(row.id));
+                              }
+                            },
+                          },
+                        ]}
+                      />
+                    </>
+                  )}
+              </div>
+            ))}
+          </div>
+        )}
+        {creating
+          ? (
+            <div class="xl-create-form">
+              <input
+                class="xl-input"
+                value={name}
+                maxLength={60}
+                placeholder={t("lists.createName")}
+                onInput={(event) =>
+                  setName((event.target as HTMLInputElement).value)}
+              />
+              <textarea
+                class="xl-input"
+                value={reason}
+                maxLength={300}
+                placeholder={t("lists.createReason")}
+                onInput={(event) =>
+                  setReason((event.target as HTMLTextAreaElement).value)}
+              />
+              <div class="xl-create-actions">
+                <button
+                  type="button"
+                  class="xl-btn xl-btn-primary"
+                  disabled={props.busy || name.trim().length === 0 ||
+                    reason.trim().length === 0}
+                  onClick={() =>
+                    void run(() => props.onCreate(name.trim(), reason.trim()))}
+                >
+                  {t("lists.createSubmit")}
+                </button>
+                <button
+                  type="button"
+                  class="xl-btn xl-btn-ghost"
+                  onClick={() => setCreating(false)}
+                >
+                  {t("lists.createCancel")}
+                </button>
+              </div>
+            </div>
+          )
+          : (
+            <button
+              type="button"
+              class="xl-btn xl-btn-primary"
+              disabled={props.busy}
+              onClick={() => {
+                setName("");
+                setReason("");
+                setCreating(true);
+              }}
+            >
+              {t("lists.create")}
+            </button>
+          )}
+        {error.length > 0 && (
+          <p class="xl-muted" style="margin: 8px 0 0; font-size: 12px;">
+            {error}
+          </p>
+        )}
+      </Card>
+      {viewingRow && (
+        <EntriesDialog
+          name={viewingRow.name}
+          entries={entries}
+          loading={entriesLoading}
+          error={entriesError}
+          busy={props.busy}
+          onRemove={(userId) => void removeEntry(viewingRow.id, userId)}
+          onClose={() => setViewing("")}
+        />
       )}
-    </Card>
+    </>
   );
 }

@@ -6,6 +6,7 @@ import type { ListSummary } from "../../shared/types.ts";
 import type {
   ConfigResponse,
   ListsResponse,
+  OverlayListResponse,
   SyncNowResponse,
 } from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
@@ -203,6 +204,29 @@ function Onboarding() {
             onDelete={async (id) => {
               await sendMessage({ type: "deleteLocalList", id });
               await refreshLists();
+            }}
+            onToggle={async (id, enabled) => {
+              await sendMessage({ type: "setLocalListEnabled", id, enabled });
+              await refreshLists();
+            }}
+            entries={{
+              load: async (listId) => {
+                const response = await sendMessage<OverlayListResponse>({
+                  type: "overlayList",
+                });
+                return response.overlay
+                  .filter((record) => record.lists.includes(listId))
+                  .map((record) => ({
+                    userId: record.userId,
+                    screenName: record.screenName,
+                    tweetUrl: record.tweetUrl,
+                  }));
+              },
+              remove: async (listId, userId) => {
+                await sendMessage({ type: "dropOverlay", userId, listId });
+                // 行上的"条目数"来自页面数据，移除之后要一起刷新。
+                await refreshLists();
+              },
             }}
           />
           <Card

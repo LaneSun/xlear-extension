@@ -34,7 +34,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+  font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial,
     "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
 }
@@ -248,7 +249,8 @@ body {
   margin: auto;
   width: 12px;
   height: 12px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.6 6.0 L4.9 8.3 L9.4 3.2' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.6 6.0 L4.9 8.3 L9.4 3.2' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
@@ -313,22 +315,149 @@ body {
   gap: 8px;
 }
 
-/* 本地列表：独立区块里的行，操作按钮靠右、与服务器列表行区分开。 */
-.xl-local-row {
+/* 本地列表：行与订阅列表共用 .xl-list-row，整行点击都算勾选，右侧留给「…」。 */
+.xl-list-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 0;
-  border-top: 1px solid var(--xl-border, rgba(0, 0, 0, 0.08));
+  gap: 8px;
+  margin-bottom: 12px;
 }
-.xl-local-head {
+/* 间距由容器统一给，避免两条规则叠加。 */
+.xl-list-rows .xl-list-row + .xl-list-row {
+  margin-top: 0;
+}
+.xl-list-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+/* 编辑态：表单占满整行，勾选框与「…」让位。 */
+.xl-list-row > .xl-create-form {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 「…」与它的菜单：靠右、贴住行的上沿，与勾选框同高。 */
+.xl-menu-wrap {
+  position: relative;
+  flex: none;
+  margin-left: auto;
+}
+.xl-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.xl-icon-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.xl-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.xl-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+}
+.xl-menu-item {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.xl-menu-item:hover {
+  background: var(--bg-elevated);
+}
+.xl-menu-item-danger {
+  color: var(--danger);
+}
+
+/* 条目视图：本地列表里都有谁。 */
+.xl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: center;
+  padding: 24px;
 }
-.xl-local-actions {
+.xl-modal {
+  width: min(520px, 100%);
+  max-height: min(560px, 100%);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+}
+.xl-modal-head {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.xl-modal-title {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.xl-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.xl-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.xl-entry-row:first-child {
+  border-top: 0;
+}
+.xl-entry-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.xl-entry-name a {
+  color: inherit;
+  text-decoration: none;
+}
+.xl-entry-name a:hover {
+  text-decoration: underline;
 }

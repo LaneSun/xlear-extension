@@ -32,16 +32,18 @@ export interface LocalListRow {
   reason: string;
   /** 命中它的账号数（来自本地覆盖）。 */
   entries: number;
+  /** 是否生效：停用的列表不隐藏账号，也不出现在屏蔽理由弹窗里。 */
+  enabled: boolean;
 }
 
 export interface ListsResponse {
+  /** 服务器上的列表目录；本地列表在 `local` 里，两者不混。 */
   lists: ListSummary[];
   /** 自建列表：与服务器列表是两种东西，单独给出，不混进 `lists` 的语义里。 */
   local: LocalListRow[];
   subscriptions: string[];
   locale: ExtensionConfig["locale"];
 }
-
 
 export interface SubmitRequest {
   type: "submitReport";
@@ -80,6 +82,13 @@ export interface RenameLocalListRequest {
   id: string;
   name: string;
   reason: string;
+}
+
+/** 勾选 / 取消勾选一条本地列表（与订阅列表的勾选是同一个动作）。 */
+export interface SetLocalListEnabledRequest {
+  type: "setLocalListEnabled";
+  id: string;
+  enabled: boolean;
 }
 
 export interface DeleteLocalListRequest {
@@ -160,7 +169,6 @@ export interface FlushOutboxRequest {
   type: "flushOutbox";
 }
 
-
 export interface OverlayListRequest {
   type: "overlayList";
 }
@@ -172,6 +180,8 @@ export interface OverlayListResponse {
 export interface DropOverlayRequest {
   type: "dropOverlay";
   userId: string;
+  /** 只摘掉这一个列表的覆盖；不给就是整条删掉（「本地覆盖」页的移除）。 */
+  listId?: string;
 }
 
 export interface AllowListRequest {
@@ -216,6 +226,7 @@ export interface ClearAllRequest {
 export type ExtensionMessage =
   | CreateLocalListRequest
   | RenameLocalListRequest
+  | SetLocalListEnabledRequest
   | DeleteLocalListRequest
   | MatchRequest
   | ListsRequest
@@ -256,6 +267,8 @@ export type MessageResponse =
   | { error: string };
 
 /** 类型安全的请求封装。 */
-export function sendMessage<T extends MessageResponse>(message: ExtensionMessage): Promise<T> {
+export function sendMessage<T extends MessageResponse>(
+  message: ExtensionMessage,
+): Promise<T> {
   return browser.runtime.sendMessage(message) as Promise<T>;
 }

@@ -18,6 +18,13 @@ export interface LocalList {
   name: string;
   /** 用户自己写的理由，原文。 */
   reason: string;
+  /**
+   * 是否生效。
+   *
+   * 这是本地列表的"勾选"：停用之后它不再隐藏账号、也不出现在屏蔽理由弹窗里，
+   * 但条目原样留着 —— 与订阅列表的勾选是同一个动作，含义都是"这条名单现在算不算数"。
+   */
+  enabled: boolean;
   createdAt: number;
 }
 
@@ -46,7 +53,13 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   localLists: [],
   enabled: true,
   locale: "auto",
-  webdav: { enabled: false, url: "", username: "", password: "", passphrase: "" },
+  webdav: {
+    enabled: false,
+    url: "",
+    username: "",
+    password: "",
+    passphrase: "",
+  },
 };
 
 const CONFIG_KEY = "config";
@@ -72,8 +85,12 @@ export async function loadConfig(): Promise<ExtensionConfig> {
     // 不变量：订阅里只有服务器列表。本地列表走本地判定，绝不进网络路径 ——
     // 早前的版本把它写进了订阅，于是同步器拿一个服务器不存在的 id 去问，界面报"列表不存在"。
     subscriptions: (() => {
-      const local = new Set(normalizeLocalLists(raw.localLists).map((list) => list.id));
-      return [...new Set(raw.subscriptions ?? [])].filter((id) => !local.has(id));
+      const local = new Set(
+        normalizeLocalLists(raw.localLists).map((list) => list.id),
+      );
+      return [...new Set(raw.subscriptions ?? [])].filter((id) =>
+        !local.has(id)
+      );
     })(),
   };
 }
@@ -84,10 +101,20 @@ function normalizeLocalLists(raw: unknown): LocalList[] {
   const lists: LocalList[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
-    const { id, name, reason, createdAt } = item as Record<string, unknown>;
+    const { id, name, reason, createdAt, enabled } = item as Record<
+      string,
+      unknown
+    >;
     if (typeof id !== "string" || id.length === 0) continue;
     if (typeof name !== "string" || typeof reason !== "string") continue;
-    lists.push({ id, name, reason, createdAt: Number(createdAt) || Date.now() });
+    lists.push({
+      id,
+      name,
+      reason,
+      // 早先的版本没有这个字段：那时创建的列表就是生效的，补 true 才不会把老用户的名单停掉。
+      enabled: enabled !== false,
+      createdAt: Number(createdAt) || Date.now(),
+    });
   }
   return lists;
 }
@@ -96,14 +123,18 @@ export async function saveConfig(config: ExtensionConfig): Promise<void> {
   await browser.storage.local.set({ [CONFIG_KEY]: config });
 }
 
-export async function patchConfig(patch: Partial<ExtensionConfig>): Promise<ExtensionConfig> {
+export async function patchConfig(
+  patch: Partial<ExtensionConfig>,
+): Promise<ExtensionConfig> {
   const current = await loadConfig();
   const next: ExtensionConfig = {
     ...current,
     ...patch,
     webdav: { ...current.webdav, ...(patch.webdav ?? {}) },
     subscriptions: (() => {
-      const localIds = new Set((patch.localLists ?? current.localLists).map((list) => list.id));
+      const localIds = new Set(
+        (patch.localLists ?? current.localLists).map((list) => list.id),
+      );
       const next = patch.subscriptions
         ? [...new Set(patch.subscriptions)]
         : current.subscriptions;
@@ -118,7 +149,10 @@ export async function patchConfig(patch: Partial<ExtensionConfig>): Promise<Exte
 /** 运行期状态：同步水位、最近同步结果、今日隐藏的账号集合。 */
 export interface RuntimeState {
   /** 每个列表已应用的版本号与最近同步时间。 */
-  listVersions: Record<string, { version: number; lastSyncAt: number; entries: number }>;
+  listVersions: Record<
+    string,
+    { version: number; lastSyncAt: number; entries: number }
+  >;
   lastSyncAt: number;
   lastSyncError?: string;
   /**
@@ -204,8 +238,12 @@ export async function bumpHidden(userIds: readonly string[]): Promise<void> {
   if (userIds.length === 0) return;
   await mutateState((state) => {
     const day = todayKey();
-    const current = state.counters.day === day ? state.counters.hiddenAccounts : [];
-    const merged = [...new Set([...current, ...userIds])].slice(-HIDDEN_ACCOUNTS_CAP);
+    const current = state.counters.day === day
+      ? state.counters.hiddenAccounts
+      : [];
+    const merged = [...new Set([...current, ...userIds])].slice(
+      -HIDDEN_ACCOUNTS_CAP,
+    );
     return { counters: { day, hiddenAccounts: merged } };
   });
 }

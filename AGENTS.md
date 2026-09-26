@@ -99,6 +99,12 @@ docs/screenshots/ README 用的界面截图
 - **存储**：配置与密钥在 `storage.local`；过滤库、覆盖、允许列表与举报队列在 IndexedDB。
   备份导出为 JSON（口令加密，PBKDF2 + AES-GCM），也支持 WebDAV 的 `PUT`/`GET`。
 - **界面**：弹窗 `min-width: 300px / max-width: 460px`；注入 X 的弹窗 `width: min(320px, calc(100vw - 32px))`。
+- **两个名单概念，别混**：服务器列表（`config.subscriptions` 表示勾选，条目在 IndexedDB `filtered`，靠同步拉取）
+  与本地列表（`config.localLists`，条目在 `overlay`，只在本机生效，名称与理由交给平台留档）。
+  两者的"勾选"含义相同 —— **算不算数**：本地列表的 `enabled` 为假就不再参与匹配、也不出现在屏蔽理由弹窗里，
+  但条目原样留着。`ListsResponse.lists` 只放服务器目录，本地列表只在 `local` 里（欢迎页曾把两者混在一起，
+  于是本地列表被当成可订阅项）。屏蔽弹窗的名单来源是 `src/x/dialoglists.ts` 这个纯函数：
+  已订阅的服务器列表 + 已启用的本地列表。
 
 ## X 平台要点
 

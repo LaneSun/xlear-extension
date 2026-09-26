@@ -65,10 +65,10 @@ export const EXT_DICT: Dict = {
     "В этих списках уже есть такая заявка.",
   ],
   "dialog.emptyLists": [
-    "You are not subscribed to any list yet. Pick some in the extension options and you can report together with blocking.",
-    "你还没有订阅任何过滤列表。请先在扩展的「选项」里选择要订阅的列表，之后就能一并提交。",
-    "まだどのリストも購読していません。拡張機能の設定で選ぶと、ブロックと同時に報告できます。",
-    "Вы ещё не подписаны ни на один список. Выберите их в настройках расширения, чтобы сообщать вместе с блокировкой.",
+    "You have no list to use yet. Subscribe to some in the extension options, or create your own local list — then you can report together with blocking.",
+    "你还没有可用的名单。请先在扩展的「选项」里订阅列表，或新建自己的本地列表，之后就能一并提交。",
+    "利用できるリストがまだありません。拡張機能の設定で購読するか、自分のリストを作ると、ブロックと同時に報告できます。",
+    "У вас пока нет доступных списков. Подпишитесь в настройках расширения или создайте свой локальный список — тогда можно будет сообщать вместе с блокировкой.",
   ],
   "dialog.processing": ["Working…", "处理中…", "処理中…", "Обработка…"],
   "dialog.submitFailed": [
@@ -545,12 +545,6 @@ export const EXT_DICT: Dict = {
   "lists.createReason": ["Why you want it", "创建理由", "理由", "Причина"],
   "lists.createSubmit": ["Create", "创建", "作成", "Создать"],
   "lists.createCancel": ["Cancel", "取消", "キャンセル", "Отмена"],
-  "lists.createHint": [
-    "It works on this device right away. Its name and reason are also sent to the platform as a record; whether it becomes a shared list is decided later and changes nothing for you.",
-    "它立刻在本机可用。名称与理由同时会作为一条记录交给平台；它日后是否成为共享列表由平台决定，对你不产生任何影响。",
-    "この端末ですぐに使えます。名前と理由は記録としてプラットフォームにも送られます。共有リストになるかは後で決まり、あなたには影響しません。",
-    "Список сразу работает на этом устройстве. Название и причина также отправляются на платформу как запись; станет ли он общим, решается позже и на вас не влияет.",
-  ],
   "lists.mine.title": [
     "My own lists",
     "我的本地列表",
@@ -564,7 +558,31 @@ export const EXT_DICT: Dict = {
     "Списков пока нет",
   ],
   "lists.mine.local": ["Local only", "仅本地", "端末のみ", "Только локально"],
-  "lists.mine.entries": ["Accounts", "账号", "アカウント", "Аккаунты"],
+  "lists.mine.apply": [
+    "Apply {name}",
+    "让「{name}」生效",
+    "「{name}」を適用",
+    "Применять «{name}»",
+  ],
+  "lists.mine.more": ["More", "更多操作", "その他", "Ещё"],
+  "lists.mine.viewEntries": [
+    "View accounts",
+    "查看账号",
+    "アカウントを見る",
+    "Показать аккаунты",
+  ],
+  "lists.entries.title": [
+    "Accounts in “{name}”",
+    "「{name}」里的账号",
+    "「{name}」のアカウント",
+    "Аккаунты в «{name}»",
+  ],
+  "lists.entries.empty": [
+    "No accounts in this list yet.",
+    "这个列表里还没有账号。",
+    "このリストにはまだアカウントがありません。",
+    "В этом списке пока нет аккаунтов.",
+  ],
   "lists.mine.rename": ["Rename", "重命名", "名前を変更", "Переименовать"],
   "lists.mine.delete": ["Delete", "删除", "削除", "Удалить"],
   "lists.mine.deleteConfirm": [
