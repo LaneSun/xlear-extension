@@ -364,6 +364,8 @@ function Options() {
             void run(async () => {
               await sendMessage({ type: "setLocalListEnabled", id, enabled });
             })}
+          onSync={() => void handleSyncNow()}
+          syncInfo={{ entries: status.entries, lastSyncAt: status.lastSyncAt }}
           entries={{
             // 条目视图读的是本地覆盖：同一个账号可能同时在几个列表里，这里只取该列表命中的那些。
             load: async (listId) => {
@@ -617,6 +619,9 @@ function ListsPanel(
     onRename: (id: string, name: string, reason: string) => Promise<void>;
     onDelete: (id: string) => Promise<void>;
     onToggleLocal: (id: string, enabled: boolean) => void;
+    /** 勾完订阅就地同步：不必切到「常规」再点。 */
+    onSync: () => void;
+    syncInfo: { entries: number; lastSyncAt: number };
     entries: {
       load: (listId: string) => Promise<LocalListEntry[]>;
       remove: (listId: string, userId: string) => Promise<void>;
@@ -646,6 +651,22 @@ function ListsPanel(
           busy={props.busy}
           emptyText={t("options.lists.empty")}
         />
+        {/* 勾选只是改订阅；条目要同步之后才到本地，所以把同步放在这张卡里。 */}
+        <Row label={t("ext.lastSync")} hint={t("ext.localEntries")}>
+          <span class="xl-muted">
+            {props.syncInfo.entries.toLocaleString()} ·{" "}
+            {formatRelativeTime(props.syncInfo.lastSyncAt)}
+          </span>
+          <button
+            class="xl-btn xl-btn-primary"
+            type="button"
+            disabled={props.busy}
+            onClick={props.onSync}
+          >
+            <Icon icon={RefreshCw} size={15} />
+            {t("ext.syncNow")}
+          </button>
+        </Row>
       </Card>
     </>
   );

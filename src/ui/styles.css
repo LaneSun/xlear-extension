@@ -289,7 +289,8 @@ body {
 }
 
 .xl-list-empty {
-  margin: 4px 0 0;
+  /* 下面 12px：空态后面通常直接跟一个按钮（如「创建列表」），贴太紧看着像一坨。 */
+  margin: 4px 0 12px;
   color: var(--muted);
   font-size: 14px;
 }
