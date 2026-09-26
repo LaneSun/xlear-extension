@@ -64,10 +64,21 @@ Firefox 正式版只安装 AMO 签名的扩展，未签名的 xpi 只能进 Deve
 `.github/workflows/release.yml` 在建 Release 前会尝试用 AMO 凭据给 firefox 构建签名，产物以
 `…-signed.xpi` 挂进 Release —— 这个文件在**正式版 Firefox 里可以直接安装**。
 
-启用它只需两件事（都在你这边）：
+凭据就是 AMO 的 **JWT issuer / secret**，形式上分别是 `user:<数字>:<数字>` 和一串十六进制。
+本仓库的 `.env` 里已经有一份（`MOZILLA_API_KEY` / `MOZILLA_API_SECRET`）；启用 CI 签名只需把它们
+同名写进仓库 secret：
 
-1. AMO → Developer Hub → API keys 生成凭据（JWT issuer / secret）。
-2. 仓库 Settings → Secrets → Actions 添加 `AMO_API_KEY`、`AMO_API_SECRET`。
+```bash
+gh secret set MOZILLA_API_KEY --repo LaneSun/xlear-extension < <(rg '^MOZILLA_API_KEY=' .env | cut -d= -f2-)
+gh secret set MOZILLA_API_SECRET --repo LaneSun/xlear-extension < <(rg '^MOZILLA_API_SECRET=' .env | cut -d= -f2-)
+```
+
+本地想手动签名时注意 **web-ext 只认自己的变量名**（这个坑踩过一次）：
+
+```bash
+WEB_EXT_API_KEY="$MOZILLA_API_KEY" WEB_EXT_API_SECRET="$MOZILLA_API_SECRET" \
+  npx web-ext sign --source-dir .output/firefox-mv3 --channel=unlisted
+```
 
 没配置时这一步会打印一条 notice 并跳过（签名是加成，不该挡发布）。同一个版本号
 在 AMO 只能签一次，因此重跑同一次发布的工作流时这一步会失败 —— 所以它设了 allow-failure。

@@ -51,10 +51,10 @@ jobs:
       - name: 看看有没有 AMO 凭据（没有就跳过签名）
         id: amo
         env:
-          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
         run: |
-          if [ -z "$AMO_API_KEY" ]; then
-            echo "::notice::未配置 AMO_API_KEY / AMO_API_SECRET，跳过 xpi 签名。缺少签名时 Firefox 正式版无法安装，见 docs/RELEASING.md。"
+          if [ -z "$MOZILLA_API_KEY" ]; then
+            echo "::notice::未配置 MOZILLA_API_KEY / MOZILLA_API_SECRET，跳过 xpi 签名。缺少签名时 Firefox 正式版无法安装，见 docs/RELEASING.md。"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -64,8 +64,8 @@ jobs:
         if: steps.amo.outputs.enabled == 'true'
         continue-on-error: true
         env:
-          WEB_EXT_API_KEY: ${{ secrets.AMO_API_KEY }}
-          WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          WEB_EXT_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
         run: |
           # unlisted 是唯一会把签好名的 xpi 交给我们的通道（官方文档原话）；
           # 同一个版本号不能重复提交，所以重跑本工作流时这里会失败 —— 因此上面允许失败，
