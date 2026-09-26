@@ -113,6 +113,16 @@ docs/screenshots/ README 用的界面截图
 - 时间线会复用 `<article>` 节点，属性原地保留，因此必须写身份标记。
 - 不依赖页面 computed font，统一用 X 声明的字体栈；不硬编码 GraphQL `queryId`。
 
+## 发版
+
+`pnpm run pack`（= CI 用的同一条流程）产出 zip / xpi / crx / 源码包与 `SHA256SUMS`；
+推 `v*` 标签即由 `.github/workflows/release.yml` 建 Release 并挂产物。完整步骤见 `docs/RELEASING.md`。
+
+- **签名私钥永不入库**（`.gitignore` 有 `*.pem`）：一把钥匙对应一个扩展 ID，换钥匙等于换 ID。
+  本地在 `~/.local/share/xlear/crx-key.pem`，CI 在仓库 secret `CRX_KEY`，两边都要离线备份。
+- 没有私钥时 `pnpm run pack` 会**直接失败**（不生成临时钥匙）—— 这是故意的。
+- 产物名与清单版本都来自 `package.json` 的 `version`；发版前先改它，再打 `vX.Y.Z` 标签。
+
 ## 依赖版本
 
 `wxt@0.21`、`preact@10.29`、`@preact/signals@2.11`、`@preact/preset-vite@2.10`、`tailwindcss@4.3`、

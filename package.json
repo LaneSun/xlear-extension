@@ -11,6 +11,7 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "pack": "node scripts/pack-artifacts.mjs",
     "compile": "tsc --noEmit",
     "postinstall": "wxt prepare"
   },

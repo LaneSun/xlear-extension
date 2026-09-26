@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# 签名私钥（一把钥匙 = 一个扩展 ID，见 docs/RELEASING.md）
+*.pem
 
 # Dependencies and build output
 node_modules/

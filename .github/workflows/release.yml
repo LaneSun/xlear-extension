@@ -1,0 +1,59 @@
+/**
+ * 推送 `v*` 标签时出发布包并建 Release。
+ *
+ * 产物与本地 `pnpm run pack` 完全一致（同一套脚本），差别只在私钥来源：
+ * 这里从仓库 secret `CRX_KEY` 取 —— 一把钥匙对应一个扩展 ID，丢了就得换 ID，
+ * 因此它同时应该离线备份（见 docs/RELEASING.md）。
+ */
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 写入签名私钥
+        env:
+          CRX_KEY: ${{ secrets.CRX_KEY }}
+        run: |
+          if [ -z "$CRX_KEY" ]; then
+            echo "::error::缺少仓库 secret CRX_KEY（内容见 docs/RELEASING.md）—— 没有它签不了 crx，发布中止。"
+            exit 1
+          fi
+          printf '%s' "$CRX_KEY" > "$RUNNER_TEMP/crx-key.pem"
+          chmod 600 "$RUNNER_TEMP/crx-key.pem"
+
+      - name: 打包（zip / xpi / crx / 校验和）
+        env:
+          CRX_KEY_FILE: ${{ runner.temp }}/crx-key.pem
+          CHROME_BIN: google-chrome
+        run: pnpm run pack
+
+      - name: 建 Release 并挂产物
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            .output/*.zip .output/*.xpi .output/*.crx .output/SHA256SUMS

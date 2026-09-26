@@ -1,0 +1,61 @@
+# 发版
+
+产物、校验和与 Release 都由同一套脚本产出：**本地跑得通，CI 就跑得通**。
+
+## 一把钥匙 = 一个扩展 ID
+
+Chromium 系的 `.crx` 必须签名，而**扩展 ID 就是签名公钥的哈希**。所以：
+
+- 私钥一旦固定，就必须一直用同一把；换钥匙等于换 ID，已安装的用户不会自动升级。
+- 私钥**不进仓库**（`.gitignore` 里有 `*.pem`），本地留在 `~/.local/share/xlear/crx-key.pem`，
+  CI 里放仓库 secret `CRX_KEY`（内容就是那份 PEM 全文）。
+- **离线备份这份私钥**。它丢了不影响已发布的包，但之后不能再产出同一个 ID 的 crx。
+
+首次准备：
+
+```bash
+openssl genrsa -out ~/.local/share/xlear/crx-key.pem 2048
+chmod 600 ~/.local/share/xlear/crx-key.pem
+gh secret set CRX_KEY --repo LaneSun/xlear-extension < ~/.local/share/xlear/crx-key.pem
+```
+
+## 发一个版本
+
+```bash
+# 1) 改 package.json 的 version（清单版本跟着它走）
+# 2) 本地出一遍产物，确认能打包、能装
+pnpm run pack
+
+# 3) 提交并推送
+jj commit -m "发版 vX.Y.Z"
+jj bookmark set main -r @-
+jj git push --bookmark main
+
+# 4) 打标签并推送 → CI 自动建 Release 并挂产物
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+`v*` 标签推上去后，`.github/workflows/release.yml` 会：装依赖 → 用 secret 里的私钥 →
+`pnpm run pack` → `gh release create`（附自动生成的 release notes）。
+
+## 产物
+
+| 文件 | 用途 |
+| --- | --- |
+| `xlear-extension-X.Y.Z-chrome.zip` | Chrome 系商店上传 / 自托管解压加载 |
+| `xlear-extension-X.Y.Z.xpi` | Firefox 安装包（**未签名**，见下） |
+| `xlear-extension-X.Y.Z.crx` | Chromium 系自托管安装包（CRX3，已签名） |
+| `xlear-extension-X.Y.Z-sources.zip` | 商店审核要求的源码包 |
+| `SHA256SUMS` | 上面每个文件的校验和 |
+
+## 安装说明（也写在 README 里）
+
+- **xpi 未签名**：Firefox 正式版默认只装 AMO 签名的扩展。要装这份包，需要
+  Firefox Developer Edition / Nightly（`about:config` → `xpinstall.signatures.required=false`），
+  或先在 AMO 做一次签名。发布到 AMO 时上传 `-firefox.zip`（或 `.xpi`）。
+- **crx 是自托管包**：Chrome 默认拦截商店外的 crx 安装，需要
+  `ExtensionInstallForcelist`/`ExtensionSettings` 策略，或拖到 `chrome://extensions` 后确认。
+- **扩展 ID**：Firefox 的 ID 写在清单里（`browser_specific_settings.gecko.id`，当前
+  `xlear@anlbrain.com`），开发加载与发布包是同一个。Chromium 系的 ID 来自签名钥匙的公钥哈希
+  （当前 `jphaecjdabihkdhglojhfihdhnbibmci`），而 `pnpm dev` / 解压加载时的 ID 由目录路径决定，
+  与发布包**不同** —— 这是正常的，但要迁就它就别换钥匙、也别改目录名。
