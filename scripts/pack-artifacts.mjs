@@ -18,7 +18,7 @@
  * （本地是文件，CI 是 `CRX_KEY` secret → 见 `docs/RELEASING.md`）。
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -94,6 +94,45 @@ function packCrx(builtDir, target) {
   fs.rmSync(staging, { recursive: true, force: true });
 }
 
+/** 扩展 ID：签名公钥（SPKI DER）的 sha256 前 16 字节，按 a–p 编码 —— 与 Chrome 的算法一致。 */
+function extensionIdFromKey(keyFile) {
+  const publicKey = createPublicKey(fs.readFileSync(keyFile));
+  const der = publicKey.export({ type: "spki", format: "der" });
+  const digest = createHash("sha256").update(der).digest("hex").slice(0, 32);
+  return [...digest].map((digit) => "abcdefghijklmnop"[parseInt(digit, 16)]).join("");
+}
+
+/**
+ * crx 的自动更新清单。
+ *
+ * Chromium 系自托管扩展的更新走「企业策略里的 update_url 指向一份 XML」这条路：
+ * 策略写 `<扩展 ID>;<update_url>`，XML 里再指向具体的 crx 与版本号。
+ * ID 从签名私钥推导，因此清单与包永远是同一把钥匙、不会对不上。
+ * 下载地址需要知道发布位置，所以用 XL_RELEASE_BASE_URL 传入（CI 里由工作流给）。
+ */
+function writeUpdateManifest(keyFile, crxFile, version) {
+  const base = process.env.XL_RELEASE_BASE_URL?.replace(/\/+$/, "");
+  if (!base) {
+    console.log(
+      "（跳过 updates.xml：未设置 XL_RELEASE_BASE_URL，更新清单需要知道 crx 的下载地址）",
+    );
+    return null;
+  }
+  const codebase = `${base}/download/v${version}/${path.basename(crxFile)}`;
+  const xml = [
+    "<?xml version='1.0' encoding='UTF-8'?>",
+    "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>",
+    `  <app appid='${extensionIdFromKey(keyFile)}'>`,
+    `    <updatecheck codebase='${codebase}' version='${version}' />`,
+    "  </app>",
+    "</gupdate>",
+    "",
+  ].join("\n");
+  const file = path.join(outDir, "updates.xml");
+  fs.writeFileSync(file, xml);
+  return file;
+}
+
 function sha256(file) {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
@@ -117,7 +156,13 @@ function main() {
   const crx = path.join(outDir, `${base}.crx`);
   packCrx(path.join(outDir, "chrome-mv3"), crx);
 
+  const keyFile = process.env.CRX_KEY_FILE ??
+    path.join(os.homedir(), ".local/share/xlear/crx-key.pem");
+  const updates = writeUpdateManifest(keyFile, crx, pkg.version);
+  console.log(`crx 扩展 ID（由签名公钥推导）：${extensionIdFromKey(keyFile)}`);
+
   const artifacts = [chromeZip, firefoxZip, xpi, crx, sourcesZip];
+  if (updates) artifacts.push(updates);
   const lines = artifacts
     .map((file) => `${sha256(file)}  ${path.basename(file)}`)
     .join("\n");

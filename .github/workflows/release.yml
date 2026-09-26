@@ -46,6 +46,8 @@ jobs:
         env:
           CRX_KEY_FILE: ${{ runner.temp }}/crx-key.pem
           CHROME_BIN: google-chrome
+          # 更新清单要写死 crx 的下载地址，所以这里告诉它发布位置
+          XL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases
         run: pnpm run pack
 
       - name: 看看有没有 AMO 凭据（没有就跳过签名）
@@ -87,4 +89,4 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            .output/*.zip .output/*.xpi .output/*.crx .output/SHA256SUMS
+            .output/*.zip .output/*.xpi .output/*.crx .output/updates.xml .output/SHA256SUMS

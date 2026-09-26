@@ -104,6 +104,24 @@ npx web-ext sign \
 - 提交前可本地预检：`npx web-ext lint --source-dir .output/firefox-mv3`
   （当前结果：0 错误 / 3 警告 —— 警告都是打包进去的依赖里的 `innerHTML` 赋值，我们自己的源码没有）。
 
+## crx 的自动更新
+
+Chromium 系自托管扩展的更新机制是：**企业策略里带 update URL**，那个 URL 返回一份 XML，
+XML 再指向具体的 crx 与版本号。因此不需要在扩展代码里写 `update_url`：
+
+```
+ExtensionInstallForcelist:
+  jphaecjdabihkdhglojhfihdhnbibmci;https://github.com/LaneSun/xlear-extension/releases/latest/download/updates.xml
+```
+
+- `pnpm run pack` 会生成 `updates.xml`（CI 里 `XL_RELEASE_BASE_URL` 由工作流传入；
+  本地不传就跳过并提示）。清单里的 `appid` **由签名私钥推导** —— 与 crx 永远是同一把钥匙，
+  不会出现"清单写的 ID 和包对不上"这种失败。`codebase` 指向**该版本**的 crx 资产。
+- 上面那条 URL 用 `latest/download`，永远指向最新 Release 里的清单，用户因此能自动升级。
+- **绝对不要更换 crx 签名私钥** ✗：ID 是公钥的哈希，换钥匙 = 换 ID = 更新链断掉、
+  企业策略条目失效。密钥要离线备份（见上文"一把钥匙 = 一个扩展 ID"）。
+- xpi 侧**刻意不做**自更新：计划上架 AMO（listed），更新交给商店。
+
 ## 安装说明（也写在 README 里）
 
 - **xpi 未签名**：Firefox 正式版默认只装 AMO 签名的扩展。要装这份包，需要
