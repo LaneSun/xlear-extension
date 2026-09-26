@@ -216,6 +216,24 @@ export async function countOverlay(): Promise<number> {
   return await (await db()).count("overlay");
 }
 
+/**
+ * 删掉某个列表在本地覆盖里的全部条目（删除本地列表时用）。
+ *
+ * 条目纪录按账号存、里面是列表集合：先摘掉这个列表，集合空了才连记录一起删。
+ */
+export async function removeOverlayList(listId: string): Promise<number> {
+  const database = await db();
+  let removed = 0;
+  for (const record of await database.getAll("overlay")) {
+    if (!record.lists.includes(listId)) continue;
+    const rest = record.lists.filter((id) => id !== listId);
+    if (rest.length === 0) await database.delete("overlay", record.userId);
+    else await database.put("overlay", { ...record, lists: rest });
+    removed++;
+  }
+  return removed;
+}
+
 /** 某个列表在本地覆盖里的全部条目（采纳时逐条提交上线）。 */
 export async function overlayForList(listId: string): Promise<OverlayRecord[]> {
   const database = await db();

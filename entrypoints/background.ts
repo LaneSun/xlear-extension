@@ -19,20 +19,24 @@ import {
   todayKey,
 } from "../src/core/config.ts";
 import type {
-  DiagnoseResponse,
   AllowListResponse,
   ConfigResponse,
+  DiagnoseResponse,
   ExtensionMessage,
   ListsResponse,
-  MatchResponse,
-  OverlayListResponse,
-  OutboxListResponse,
   LocalListResponse,
+  MatchResponse,
+  OutboxListResponse,
+  OverlayListResponse,
   StatusResponse,
   SubmitResponse,
   WebdavResultResponse,
 } from "../src/core/messaging.ts";
-import { flushOutbox, outboxSize, submitBlockReport } from "../src/core/reports.ts";
+import {
+  flushOutbox,
+  outboxSize,
+  submitBlockReport,
+} from "../src/core/reports.ts";
 import {
   addOverlay,
   allowUser,
@@ -48,9 +52,14 @@ import {
   overlayCounts,
   overlayForList,
   removeOverlay,
+  removeOverlayList,
 } from "../src/core/storage.ts";
 import { syncAll } from "../src/core/sync.ts";
-import { pullFromWebdav, pushToWebdav, testWebdav } from "../src/sync/webdav.ts";
+import {
+  pullFromWebdav,
+  pushToWebdav,
+  testWebdav,
+} from "../src/sync/webdav.ts";
 
 const SYNC_ALARM = "xlear-sync";
 const OUTBOX_ALARM = "xlear-outbox";
@@ -66,7 +75,10 @@ export default defineBackground(() => {
     // 定时同步在后台自行发起，语言要先对齐配置（界面开关不会唤醒这段代码）。
     applyLocale(config.locale);
     await applySyncAlarm(config.subscriptions.length > 0);
-    await browser.alarms.create(OUTBOX_ALARM, { periodInMinutes: 15, delayInMinutes: 2 });
+    await browser.alarms.create(OUTBOX_ALARM, {
+      periodInMinutes: 15,
+      delayInMinutes: 2,
+    });
   };
 
   browser.runtime.onInstalled.addListener((details) => {
@@ -80,22 +92,28 @@ export default defineBackground(() => {
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM) {
-      void runSync().catch((error) => console.warn("[xlear] 定时同步失败", error));
+      void runSync().catch((error) =>
+        console.warn("[xlear] 定时同步失败", error)
+      );
     }
     if (alarm.name === OUTBOX_ALARM) {
       void flushOutbox().catch(() => {});
     }
   });
 
-  browser.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-    void handleMessage(message as ExtensionMessage)
-      .then((response) => sendResponse(response))
-      .catch((error) => {
-        console.warn("[xlear] 消息处理失败", error);
-        sendResponse({ error: error instanceof Error ? error.message : String(error) });
-      });
-    return true; // 异步响应
-  });
+  browser.runtime.onMessage.addListener(
+    (message: unknown, _sender, sendResponse) => {
+      void handleMessage(message as ExtensionMessage)
+        .then((response) => sendResponse(response))
+        .catch((error) => {
+          console.warn("[xlear] 消息处理失败", error);
+          sendResponse({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return true; // 异步响应
+    },
+  );
 });
 
 /** 没有订阅就不要留着定时同步的告警（退订后它只会空转）。 */
@@ -113,10 +131,14 @@ async function applySyncAlarm(hasSubscriptions: boolean): Promise<void> {
 /** 让已打开的 X 标签页立刻按新的本地状态重算隐藏（订阅、语言、本地覆盖都会变）。 */
 async function notifyXTabs(): Promise<void> {
   try {
-    const tabs = await browser.tabs.query({ url: ["https://x.com/*", "https://twitter.com/*"] });
+    const tabs = await browser.tabs.query({
+      url: ["https://x.com/*", "https://twitter.com/*"],
+    });
     for (const tab of tabs) {
       if (tab.id === undefined) continue;
-      await browser.tabs.sendMessage(tab.id, { type: "refresh" }).catch(() => {});
+      await browser.tabs.sendMessage(tab.id, { type: "refresh" }).catch(
+        () => {},
+      );
     }
   } catch {
     // 没有打开的标签页是正常情况。
@@ -125,7 +147,9 @@ async function notifyXTabs(): Promise<void> {
 
 /** 列表目录缓存半小时，理由弹窗要用。 */
 async function getLists(force = false): Promise<ListSummary[]> {
-  if (!force && listsCache && Date.now() - listsCache.at < 30 * 60_000) return listsCache.lists;
+  if (!force && listsCache && Date.now() - listsCache.at < 30 * 60_000) {
+    return listsCache.lists;
+  }
   try {
     const response = await fetchLists();
     listsCache = { at: Date.now(), lists: response.lists };
@@ -139,14 +163,24 @@ async function getLists(force = false): Promise<ListSummary[]> {
   }
 }
 
-async function runSync(force = false): Promise<{ lists: number; entries: number; errors: string[] }> {
+async function runSync(
+  force = false,
+): Promise<{ lists: number; entries: number; errors: string[] }> {
   const config = await loadConfig();
   // 目录先取（force 时绕过缓存），同步器据此决定要不要发差量请求。
   const catalog = await getLists(force);
   const result = await syncAll(config, { force, catalog });
+  // 失败细节只进控制台：界面上只报"有几个列表没同步上"，不把服务器的原文摆给用户。
+  if (result.errors.length > 0) {
+    console.warn("[xlear] 同步失败详情：", ...result.errors);
+  }
   await adoptOnlineLocalLists();
   await notifyXTabs();
-  return { lists: result.lists, entries: result.totalEntries, errors: result.errors };
+  return {
+    lists: result.lists,
+    entries: result.totalEntries,
+    errors: result.errors,
+  };
 }
 
 /**
@@ -165,7 +199,9 @@ async function adoptOnlineLocalLists(): Promise<void> {
   await patchConfig({
     localLists: config.localLists.filter((list) => !online.has(list.id)),
     // 身份变成在线列表之后，它才该进订阅 —— 目录里从此才有它。
-    subscriptions: [...new Set([...config.subscriptions, ...adopted.map((list) => list.id)])],
+    subscriptions: [
+      ...new Set([...config.subscriptions, ...adopted.map((list) => list.id)]),
+    ],
   });
   // 逐条把原本地条目提交上线：没带帖子的（补字段之前建的）留在本地覆盖里，只对自己生效。
   for (const list of adopted) {
@@ -210,7 +246,9 @@ async function buildStatus(): Promise<StatusResponse> {
 /** 在打开的 X 标签页里跑一次选择器自检。 */
 async function diagnose(): Promise<DiagnoseResponse> {
   try {
-    const tabs = await browser.tabs.query({ url: ["https://x.com/*", "https://twitter.com/*"] });
+    const tabs = await browser.tabs.query({
+      url: ["https://x.com/*", "https://twitter.com/*"],
+    });
     const tab = tabs.find((candidate) => candidate.id !== undefined);
     if (!tab || tab.id === undefined) {
       return {
@@ -224,11 +262,17 @@ async function diagnose(): Promise<DiagnoseResponse> {
         ],
       };
     }
-    const response = await browser.tabs.sendMessage(tab.id, { type: "xlearDiagnose" }) as DiagnoseResponse | undefined;
+    const response = await browser.tabs.sendMessage(tab.id, {
+      type: "xlearDiagnose",
+    }) as DiagnoseResponse | undefined;
     return response ?? {
       url: tab.url ?? "",
       checks: [
-        { name: t("ext.diagnostics.contentScript"), ok: false, detail: t("ext.diagnostics.noResponse") },
+        {
+          name: t("ext.diagnostics.contentScript"),
+          ok: false,
+          detail: t("ext.diagnostics.noResponse"),
+        },
       ],
     };
   } catch (error) {
@@ -252,7 +296,9 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   switch (message.type) {
     case "match": {
       // 总开关在后台生效：关掉时一律返回"没有命中"，内容脚本据此不隐藏任何帖子。
-      const matches = config.enabled ? await matchUsers(message.userIds) : new Map();
+      const matches = config.enabled
+        ? await matchUsers(message.userIds)
+        : new Map();
       const response: MatchResponse = {
         matches: [...matches.entries()].map(([userId, info]) => ({
           userId,
@@ -289,7 +335,12 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       }
       // 列表在本地诞生：只落盘，**不进订阅** —— 订阅的语义是"要从服务器同步的列表"，
       // 而它此刻在服务器上并不存在。它在本地可用靠的是本地覆盖与匹配，不需要网络。
-      const list = { id: crypto.randomUUID(), name, reason, createdAt: Date.now() };
+      const list = {
+        id: crypto.randomUUID(),
+        name,
+        reason,
+        createdAt: Date.now(),
+      };
       await patchConfig({ localLists: [...config.localLists, list] });
       void submitCandidate({
         id: list.id,
@@ -298,6 +349,32 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         ...(config.locale === "auto" ? {} : { locale: config.locale }),
       }).catch(() => undefined);
       return { id: list.id } satisfies LocalListResponse;
+    }
+    case "renameLocalList": {
+      const name = message.name.trim();
+      const reason = message.reason.trim();
+      if (name.length === 0 || reason.length === 0) {
+        throw new Error("list name and reason are required");
+      }
+      const found = config.localLists.some((list) => list.id === message.id);
+      if (!found) throw new Error("no such local list");
+      await patchConfig({
+        localLists: config.localLists.map((list) =>
+          list.id === message.id ? { ...list, name, reason } : list
+        ),
+      });
+      return { ok: true } satisfies { ok: boolean };
+    }
+    case "deleteLocalList": {
+      if (!config.localLists.some((list) => list.id === message.id)) {
+        return { ok: false };
+      }
+      await removeOverlayList(message.id);
+      await patchConfig({
+        localLists: config.localLists.filter((list) => list.id !== message.id),
+        subscriptions: config.subscriptions.filter((id) => id !== message.id),
+      });
+      return { ok: true } satisfies { ok: boolean };
     }
     case "submitReport": {
       // 自建列表是用户自己的名单：条目只进本地覆盖、立刻生效，不出设备。
@@ -315,14 +392,22 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
           tweetId: message.tweetId,
           tweetUrl: message.tweetUrl,
         });
-        for (const listId of localTargets) results.push({ listId, status: "accepted" });
+        for (const listId of localTargets) {
+          results.push({ listId, status: "accepted" });
+        }
       }
       if (remoteTargets.length > 0) {
-        results.push(...await submitBlockReport(
-          { userId: message.userId, screenName: message.screenName },
-          remoteTargets,
-          { id: message.tweetId, url: message.tweetUrl, text: message.tweetText },
-        ));
+        results.push(
+          ...await submitBlockReport(
+            { userId: message.userId, screenName: message.screenName },
+            remoteTargets,
+            {
+              id: message.tweetId,
+              url: message.tweetUrl,
+              text: message.tweetText,
+            },
+          ),
+        );
       }
       const response: SubmitResponse = { results };
       return response;
@@ -361,7 +446,9 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       // 列表名与理由是按请求语言取的，语言一变缓存立刻作废，否则屏蔽弹窗会混语言。
       if (next.locale !== config.locale) listsCache = null;
       // 退订的列表要把本地条目一起清掉，否则会"退订了还在过滤"。
-      const removed = config.subscriptions.filter((id) => !next.subscriptions.includes(id));
+      const removed = config.subscriptions.filter((id) =>
+        !next.subscriptions.includes(id)
+      );
       for (const listId of removed) await dropList(listId);
       await applySyncAlarm(next.subscriptions.length > 0);
       // 已打开的 X 标签页要立刻换语言/换订阅，不必等下一次同步或刷新页面。

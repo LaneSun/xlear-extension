@@ -2,9 +2,8 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
-import { Search, type LucideIcon, type LucideProps } from "lucide-preact";
+import { ListPlus, Search, type LucideIcon, type LucideProps } from "lucide-preact";
 import { t } from "../i18n.ts";
-import { sendMessage } from "../core/messaging.ts";
 // 叶子模块按相对路径引入：页面与内容脚本都不该被 shared/mod.ts 的整桶依赖拖累。
 import {
   LOGO_SHIELD,
@@ -176,55 +175,25 @@ export function Spinner(props: { label?: string }) {
 /**
  * 订阅列表选择器：选项页与欢迎页共用同一份实现（含搜索），两处观感与行为一致。
  *
- * 搜索匹配列表名与理由。列表 ID 是 UUID，对人没有意义，不参与匹配。
+ * 只展示**服务器上的**列表：本地列表有自己的区块（`LocalListsPanel`），
+ * 它的条目不在服务器、也不该混进"订阅"这个概念里。
  */
 export function ListPicker(
   props: {
     lists: ListSummary[];
     isSelected: (listId: string) => boolean;
     onToggle: (listId: string, checked: boolean) => void;
-    /** 用户新建了自建列表：调用方据此把它标为已选并刷新列表。 */
-    onCreated: (listId: string) => void;
     busy?: boolean;
     /** 一个列表都没有时的文案（与"搜索无结果"区分开）。 */
     emptyText: string;
   },
 ) {
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [reason, setReason] = useState("");
-  const [creatingBusy, setCreatingBusy] = useState(false);
-  const [createError, setCreateError] = useState("");
   const needle = query.trim().toLowerCase();
   const visible = needle.length === 0 ? props.lists : props.lists.filter((list) =>
     list.name.toLowerCase().includes(needle) ||
     list.reason.toLowerCase().includes(needle)
   );
-
-  /**
-   * 建列表：后台落盘并订阅，条目立刻可用；名称与理由另交一份给平台留作记录。
-   * 失败不阻塞本地 —— 但这一步失败说明本地也没建成，所以要如实告诉用户。
-   */
-  async function createList(): Promise<void> {
-    setCreatingBusy(true);
-    setCreateError("");
-    try {
-      const created = await sendMessage<{ id: string }>({
-        type: "createLocalList",
-        name: name.trim(),
-        reason: reason.trim(),
-      });
-      setName("");
-      setReason("");
-      setCreating(false);
-      props.onCreated(created.id);
-    } catch (error) {
-      setCreateError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCreatingBusy(false);
-    }
-  }
 
   return (
     <>
@@ -240,52 +209,7 @@ export function ListPicker(
             onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
           />
         </div>
-        <button
-          type="button"
-          class="xl-btn"
-          onClick={() => {
-            setCreating(!creating);
-            setCreateError("");
-          }}
-        >
-          {t("lists.create")}
-        </button>
       </div>
-      {creating && (
-        <div class="xl-create-form">
-          <input
-            class="xl-input"
-            value={name}
-            maxLength={60}
-            placeholder={t("lists.createName")}
-            aria-label={t("lists.createName")}
-            onInput={(event) => setName((event.target as HTMLInputElement).value)}
-          />
-          <textarea
-            class="xl-input"
-            value={reason}
-            maxLength={300}
-            placeholder={t("lists.createReason")}
-            aria-label={t("lists.createReason")}
-            onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
-          />
-          <p class="xl-muted" style="margin: 0; font-size: 12px;">{t("lists.createHint")}</p>
-          {createError.length > 0 && <p class="xl-muted" style="margin: 0; font-size: 12px;">{createError}</p>}
-          <div class="xl-create-actions">
-            <button
-              type="button"
-              class="xl-btn xl-btn-primary"
-              disabled={creatingBusy || name.trim().length === 0 || reason.trim().length === 0}
-              onClick={() => void createList()}
-            >
-              {t("lists.createSubmit")}
-            </button>
-            <button type="button" class="xl-btn" onClick={() => setCreating(false)}>
-              {t("lists.createCancel")}
-            </button>
-          </div>
-        </div>
-      )}
       {visible.length === 0
         ? (
           <p class="xl-list-empty">
@@ -314,5 +238,172 @@ export function ListPicker(
           );
         })}
     </>
+  );
+}
+
+
+/** 一条本地列表在界面上的样子。 */
+export interface LocalListRow {
+  id: string;
+  name: string;
+  reason: string;
+  /** 命中这个列表的账号数（来自本地覆盖）。 */
+  entries: number;
+}
+
+/**
+ * 「我的本地列表」：本地列表有自己的管理入口。
+ *
+ * 它与服务器列表是两种东西：条目只在本机、随时可改可删；名称与理由在创建时交过一份记录，
+ * 之后就与服务器无关了 —— 所以这里既不显示订阅数，也没有"订阅"这个动作。
+ */
+export function LocalListsPanel(
+  props: {
+    rows: LocalListRow[];
+    busy?: boolean;
+    onCreate: (name: string, reason: string) => void | Promise<void>;
+    onRename: (id: string, name: string, reason: string) => void | Promise<void>;
+    onDelete: (id: string) => void | Promise<void>;
+  },
+) {
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState("");
+  const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+
+  async function run(action: () => void | Promise<void>): Promise<void> {
+    setError("");
+    try {
+      await action();
+      setCreating(false);
+      setEditing("");
+      setName("");
+      setReason("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  return (
+    <Card title={t("lists.mine.title")} subtitle={t("lists.mine.note")} icon={ListPlus}>
+      {props.rows.length === 0 && !creating && (
+        <p class="xl-list-empty">{t("lists.mine.empty")}</p>
+      )}
+      {props.rows.map((row) => (
+        <div key={row.id} class="xl-local-row">
+          {editing === row.id
+            ? (
+              <div class="xl-create-form">
+                <input
+                  class="xl-input"
+                  value={name}
+                  maxLength={60}
+                  placeholder={t("lists.createName")}
+                  onInput={(event) => setName((event.target as HTMLInputElement).value)}
+                />
+                <textarea
+                  class="xl-input"
+                  value={reason}
+                  maxLength={300}
+                  placeholder={t("lists.createReason")}
+                  onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
+                />
+                <div class="xl-create-actions">
+                  <button
+                    type="button"
+                    class="xl-btn xl-btn-primary"
+                    disabled={props.busy || name.trim().length === 0 || reason.trim().length === 0}
+                    onClick={() => void run(() => props.onRename(row.id, name.trim(), reason.trim()))}
+                  >
+                    {t("common.save")}
+                  </button>
+                  <button type="button" class="xl-btn" onClick={() => setEditing("")}>
+                    {t("lists.createCancel")}
+                  </button>
+                </div>
+              </div>
+            )
+            : (
+              <>
+                <div class="xl-local-head">
+                  <span class="xl-list-name">{row.name}</span>
+                  <Chip>{t("lists.mine.local")}</Chip>
+                  <Chip>{`${t("lists.mine.entries")} ${row.entries.toLocaleString()}`}</Chip>
+                </div>
+                <span class="xl-list-reason">{row.reason}</span>
+                <div class="xl-local-actions">
+                  <button
+                    type="button"
+                    class="xl-btn"
+                    disabled={props.busy}
+                    onClick={() => {
+                      setName(row.name);
+                      setReason(row.reason);
+                      setEditing(row.id);
+                    }}
+                  >
+                    {t("lists.mine.rename")}
+                  </button>
+                  <button
+                    type="button"
+                    class="xl-btn"
+                    disabled={props.busy}
+                    onClick={() => {
+                      if (globalThis.confirm(t("lists.mine.deleteConfirm"))) {
+                        void run(() => props.onDelete(row.id));
+                      }
+                    }}
+                  >
+                    {t("lists.mine.delete")}
+                  </button>
+                </div>
+              </>
+            )}
+        </div>
+      ))}
+      {creating
+        ? (
+          <div class="xl-create-form">
+            <input
+              class="xl-input"
+              value={name}
+              maxLength={60}
+              placeholder={t("lists.createName")}
+              onInput={(event) => setName((event.target as HTMLInputElement).value)}
+            />
+            <textarea
+              class="xl-input"
+              value={reason}
+              maxLength={300}
+              placeholder={t("lists.createReason")}
+              onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
+            />
+            <div class="xl-create-actions">
+              <button
+                type="button"
+                class="xl-btn xl-btn-primary"
+                disabled={props.busy || name.trim().length === 0 || reason.trim().length === 0}
+                onClick={() => void run(() => props.onCreate(name.trim(), reason.trim()))}
+              >
+                {t("lists.createSubmit")}
+              </button>
+              <button type="button" class="xl-btn" onClick={() => setCreating(false)}>
+                {t("lists.createCancel")}
+              </button>
+            </div>
+          </div>
+        )
+        : (
+          <button type="button" class="xl-btn" disabled={props.busy} onClick={() => {
+            setName("");
+            setReason("");
+            setCreating(true);
+          }}>
+            {t("lists.create")}
+          </button>
+        )}
+      {error.length > 0 && <p class="xl-muted" style="margin: 8px 0 0; font-size: 12px;">{error}</p>}
+    </Card>
   );
 }

@@ -64,6 +64,18 @@ export interface LocalListResponse {
   id: string;
 }
 
+export interface RenameLocalListRequest {
+  type: "renameLocalList";
+  id: string;
+  name: string;
+  reason: string;
+}
+
+export interface DeleteLocalListRequest {
+  type: "deleteLocalList";
+  id: string;
+}
+
 export interface AllowRequest {
   type: "allow";
   userId: string;
@@ -192,6 +204,8 @@ export interface ClearAllRequest {
 
 export type ExtensionMessage =
   | CreateLocalListRequest
+  | RenameLocalListRequest
+  | DeleteLocalListRequest
   | MatchRequest
   | ListsRequest
   | SubmitRequest
@@ -217,6 +231,7 @@ export type MessageResponse =
   | MatchResponse
   | ListsResponse
   | LocalListResponse
+  | { ok: boolean }
   | SubmitResponse
   | StatusResponse
   | SyncNowResponse

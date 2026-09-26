@@ -312,3 +312,23 @@ body {
   display: flex;
   gap: 8px;
 }
+
+/* 本地列表：独立区块里的行，操作按钮靠右、与服务器列表行区分开。 */
+.xl-local-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--xl-border, rgba(0, 0, 0, 0.08));
+}
+.xl-local-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.xl-local-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

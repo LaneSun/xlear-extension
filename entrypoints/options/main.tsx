@@ -1,3 +1,7 @@
+import {
+  type LocalListRow,
+  LocalListsPanel,
+} from "../../src/ui/components.tsx";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { ListSummary } from "../../shared/types.ts";
@@ -27,8 +31,23 @@ import {
   SlidersHorizontal,
 } from "lucide-preact";
 import { requestHostPermission } from "../../src/core/permissions.ts";
-import { applyDocumentLocale, applyLocale, formatRelativeTime, t } from "../../src/i18n.ts";
-import { Banner, Card, Chip, Field, Icon, ListPicker, Logo, Row, Spinner } from "../../src/ui/components.tsx";
+import {
+  applyDocumentLocale,
+  applyLocale,
+  formatRelativeTime,
+  t,
+} from "../../src/i18n.ts";
+import {
+  Banner,
+  Card,
+  Chip,
+  Field,
+  Icon,
+  ListPicker,
+  Logo,
+  Row,
+  Spinner,
+} from "../../src/ui/components.tsx";
 import "../../src/ui/styles.css";
 
 /**
@@ -102,7 +121,9 @@ function Options() {
       type: "lists",
       force: options.forceLists === true,
     });
-    setData((previous) => (previous ? { ...previous, lists: lists.lists } : previous));
+    setData((
+      previous,
+    ) => (previous ? { ...previous, lists: lists.lists } : previous));
   }
 
   useEffect(() => {
@@ -138,6 +159,14 @@ function Options() {
 
   const { config, lists, status, overlay, allowed } = data;
   const subscribed = new Set(config.subscriptions);
+  // 本地列表的行数据：名称与理由来自配置，条目数来自目录里那一条（即本地覆盖的账号数）。
+  const entriesBy = new Map(data.lists.map((row) => [row.id, row.entryCount]));
+  const localRows: LocalListRow[] = data.config.localLists.map((list) => ({
+    id: list.id,
+    name: list.name,
+    reason: list.reason,
+    entries: entriesBy.get(list.id) ?? 0,
+  }));
 
   const patchConfigValue = (patch: Partial<ExtensionConfig>) =>
     run(async () => {
@@ -149,15 +178,25 @@ function Options() {
 
   async function handleSyncNow(): Promise<void> {
     await run(async () => {
-      const result = await sendMessage<SyncNowResponse>({ type: "syncNow", force: false });
+      const result = await sendMessage<SyncNowResponse>({
+        type: "syncNow",
+        force: false,
+      });
       // 成功的反馈由「同步状态」行自己体现（条目数 + 最近同步时间）；有列表失败才要说话。
-      if (result.errors.length > 0) throw new Error(t("options.syncFailedLists", { n: result.errors.length }));
+      if (result.errors.length > 0) {
+        throw new Error(
+          t("options.syncFailedLists", { n: result.errors.length }),
+        );
+      }
       // 用户显式同步过：这时才值得强制刷新列表元数据。
       await load({ forceLists: true });
     });
   }
 
-  async function handleToggleSubscription(listId: string, checked: boolean): Promise<void> {
+  async function handleToggleSubscription(
+    listId: string,
+    checked: boolean,
+  ): Promise<void> {
     const next = checked
       ? [...config.subscriptions, listId]
       : config.subscriptions.filter((id) => id !== listId);
@@ -171,16 +210,28 @@ function Options() {
       ? requestHostPermission(config.webdav.url)
       : Promise.resolve(true);
     void run(async () => {
-      if (!(await granted)) throw new Error(t("options.webdav.noPermission", { url: config.webdav.url }));
-      await sendMessage<ConfigResponse>({ type: "updateConfig", patch: { webdav: config.webdav } });
-      const result = await sendMessage<WebdavResultResponse>({ type: "webdavTest" });
+      if (!(await granted)) {
+        throw new Error(
+          t("options.webdav.noPermission", { url: config.webdav.url }),
+        );
+      }
+      await sendMessage<ConfigResponse>({
+        type: "updateConfig",
+        patch: { webdav: config.webdav },
+      });
+      const result = await sendMessage<WebdavResultResponse>({
+        type: "webdavTest",
+      });
       if (!result.ok) throw new Error(result.message);
     });
   }
 
   async function handleWebdavSync(direction: "push" | "pull"): Promise<void> {
     await run(async () => {
-      const result = await sendMessage<WebdavResultResponse>({ type: "webdavSync", direction });
+      const result = await sendMessage<WebdavResultResponse>({
+        type: "webdavSync",
+        direction,
+      });
       if (!result.ok) throw new Error(result.message);
     });
   }
@@ -192,7 +243,9 @@ function Options() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `xlear-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `xlear-backup-${
+        new Date().toISOString().slice(0, 10)
+      }.json`;
       anchor.click();
       URL.revokeObjectURL(url);
     });
@@ -224,14 +277,17 @@ function Options() {
         <h1 style="font-size: 22px; margin: 0;">{t("options.title")}</h1>
       </header>
 
-      <Tabs current={tab} onSelect={(id) => {
-        setTab(id);
-        location.hash = id;
-      }} />
+      <Tabs
+        current={tab}
+        onSelect={(id) => {
+          setTab(id);
+          location.hash = id;
+        }}
+      />
 
       {errorNotice && <Banner tone="error">{errorNotice}</Banner>}
       {status.lastSyncError && (
-        <Banner tone="error">{t("options.lastSyncError", { error: status.lastSyncError })}</Banner>
+        <Banner tone="error">{t("options.syncFailedHint")}</Banner>
       )}
 
       {tab === "general" && (
@@ -242,9 +298,13 @@ function Options() {
                 class="xl-select"
                 value={config.locale}
                 onChange={(event) => {
-                  const locale = (event.target as HTMLSelectElement).value as LocaleSetting;
+                  const locale = (event.target as HTMLSelectElement)
+                    .value as LocaleSetting;
                   void run(async () => {
-                    await sendMessage<ConfigResponse>({ type: "updateConfig", patch: { locale } });
+                    await sendMessage<ConfigResponse>({
+                      type: "updateConfig",
+                      patch: { locale },
+                    });
                     applyLocale(locale);
                     applyDocumentLocale("options.title");
                   });
@@ -262,7 +322,8 @@ function Options() {
           <Card title={t("options.syncStatus.title")} icon={RefreshCw}>
             <Row label={t("ext.lastSync")} hint={t("ext.localEntries")}>
               <span class="xl-muted">
-                {status.entries.toLocaleString()} · {formatRelativeTime(status.lastSyncAt)}
+                {status.entries.toLocaleString()} ·{" "}
+                {formatRelativeTime(status.lastSyncAt)}
               </span>
               <button
                 class="xl-btn xl-btn-primary"
@@ -281,16 +342,32 @@ function Options() {
       {tab === "lists" && (
         <ListsPanel
           lists={lists}
+          localRows={localRows}
           subscribed={subscribed}
           busy={busy}
           onChange={(id, checked) => void handleToggleSubscription(id, checked)}
-          onCreated={() => void load()}
+          onCreate={async (name, reason) => {
+            await sendMessage({ type: "createLocalList", name, reason });
+            await load();
+          }}
+          onRename={async (id, name, reason) => {
+            await sendMessage({ type: "renameLocalList", id, name, reason });
+            await load();
+          }}
+          onDelete={async (id) => {
+            await sendMessage({ type: "deleteLocalList", id });
+            await load();
+          }}
         />
       )}
 
       {tab === "local" && (
         <>
-          <Card title={t("options.overlay.title")} subtitle={t("options.overlay.note")} icon={Inbox}>
+          <Card
+            title={t("options.overlay.title")}
+            subtitle={t("options.overlay.note")}
+            icon={Inbox}
+          >
             {overlay.length === 0
               ? <p class="xl-muted">{t("options.overlay.empty")}</p>
               : overlay.map((record) => (
@@ -302,13 +379,20 @@ function Options() {
                   busy={busy}
                   onAction={() =>
                     void run(async () => {
-                      await sendMessage({ type: "dropOverlay", userId: record.userId });
+                      await sendMessage({
+                        type: "dropOverlay",
+                        userId: record.userId,
+                      });
                     })}
                 />
               ))}
           </Card>
 
-          <Card title={t("options.allow.title")} subtitle={t("options.allow.note")} icon={ShieldOff}>
+          <Card
+            title={t("options.allow.title")}
+            subtitle={t("options.allow.note")}
+            icon={ShieldOff}
+          >
             {allowed.length === 0
               ? <p class="xl-muted">{t("options.allow.empty")}</p>
               : allowed.map((record) => (
@@ -320,7 +404,10 @@ function Options() {
                   busy={busy}
                   onAction={() =>
                     void run(async () => {
-                      await sendMessage({ type: "unallow", userId: record.userId });
+                      await sendMessage({
+                        type: "unallow",
+                        userId: record.userId,
+                      });
                     })}
                 />
               ))}
@@ -348,7 +435,8 @@ function Options() {
                 class="xl-input"
                 type="password"
                 value={passphrase}
-                onInput={(event) => setPassphrase((event.target as HTMLInputElement).value)}
+                onInput={(event) =>
+                  setPassphrase((event.target as HTMLInputElement).value)}
               />
             </Field>
             <div style="margin-bottom: 12px;">
@@ -367,7 +455,8 @@ function Options() {
                 rows={4}
                 placeholder={t("options.transfer.importPlaceholder")}
                 value={importText}
-                onInput={(event) => setImportText((event.target as HTMLTextAreaElement).value)}
+                onInput={(event) =>
+                  setImportText((event.target as HTMLTextAreaElement).value)}
               />
             </Field>
             <button
@@ -383,12 +472,26 @@ function Options() {
       )}
 
       {tab === "diagnostics" && (
-        <Card title={t("options.diagnostics.title")} subtitle={t("options.diagnostics.note")} icon={Settings2}>
+        <Card
+          title={t("options.diagnostics.title")}
+          subtitle={t("options.diagnostics.note")}
+          icon={Settings2}
+        >
           <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
-            <button class="xl-btn xl-btn-ghost" type="button" disabled={busy} onClick={() => void handleDiagnose()}>
+            <button
+              class="xl-btn xl-btn-ghost"
+              type="button"
+              disabled={busy}
+              onClick={() => void handleDiagnose()}
+            >
               {t("options.diagnostics.run")}
             </button>
-            <button class="xl-btn xl-btn-danger" type="button" disabled={busy} onClick={() => void handleClearAll()}>
+            <button
+              class="xl-btn xl-btn-danger"
+              type="button"
+              disabled={busy}
+              onClick={() => void handleClearAll()}
+            >
               <Icon icon={Eraser} size={15} />
               {t("options.danger.clear")}
             </button>
@@ -420,7 +523,9 @@ function Tabs(props: { current: TabId; onSelect: (id: TabId) => void }) {
             style={{
               background: "none",
               border: "none",
-              borderBottom: `2px solid ${active ? "var(--accent)" : "transparent"}`,
+              borderBottom: `2px solid ${
+                active ? "var(--accent)" : "transparent"
+              }`,
               color: active ? "var(--text)" : "var(--muted)",
               padding: "8px 12px",
               marginBottom: "-1px",
@@ -456,34 +561,61 @@ function AccountRow(
 ) {
   return (
     <Row label={`@${props.screenName ?? props.userId}`}>
-      <button class="xl-btn xl-btn-ghost" type="button" disabled={props.busy} onClick={props.onAction}>
+      <button
+        class="xl-btn xl-btn-ghost"
+        type="button"
+        disabled={props.busy}
+        onClick={props.onAction}
+      >
         {props.button}
       </button>
     </Row>
   );
 }
 
-/** 订阅列表页：卡片外壳 + 共用的选择器（选项页与欢迎页同一份实现）。 */
+/**
+ * 列表页：上面是「我的本地列表」（自己的管理入口），下面是服务器列表的订阅选择器。
+ *
+ * 两者是两种东西：本地列表的条目只在本机、随时可改可删，也不参与网络同步 ——
+ * 所以它不在这里的"订阅"里，也没有订阅数可显示。
+ */
 function ListsPanel(
   props: {
     lists: ListSummary[];
+    localRows: LocalListRow[];
     subscribed: Set<string>;
     busy: boolean;
     onChange: (listId: string, checked: boolean) => void;
-    onCreated: () => void;
+    onCreate: (name: string, reason: string) => Promise<void>;
+    onRename: (id: string, name: string, reason: string) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
   },
 ) {
+  const localIds = new Set(props.localRows.map((row) => row.id));
+  const serverLists = props.lists.filter((list) => !localIds.has(list.id));
   return (
-    <Card title={t("options.lists.title")} subtitle={t("options.lists.note")} icon={ListChecks}>
-      <ListPicker
-        lists={props.lists}
-        isSelected={(id) => props.subscribed.has(id)}
-        onToggle={props.onChange}
-        onCreated={props.onCreated}
+    <>
+      <LocalListsPanel
+        rows={props.localRows}
         busy={props.busy}
-        emptyText={t("options.lists.empty")}
+        onCreate={props.onCreate}
+        onRename={props.onRename}
+        onDelete={props.onDelete}
       />
-    </Card>
+      <Card
+        title={t("options.lists.title")}
+        subtitle={t("options.lists.note")}
+        icon={ListChecks}
+      >
+        <ListPicker
+          lists={serverLists}
+          isSelected={(id) => props.subscribed.has(id)}
+          onToggle={props.onChange}
+          busy={props.busy}
+          emptyText={t("options.lists.empty")}
+        />
+      </Card>
+    </>
   );
 }
 
@@ -506,7 +638,8 @@ function WebdavSection(
         <input
           class="xl-input"
           value={webdav.url}
-          onInput={(event) => setWebdav({ url: (event.target as HTMLInputElement).value })}
+          onInput={(event) =>
+            setWebdav({ url: (event.target as HTMLInputElement).value })}
         />
       </Field>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -514,7 +647,8 @@ function WebdavSection(
           <input
             class="xl-input"
             value={webdav.username}
-            onInput={(event) => setWebdav({ username: (event.target as HTMLInputElement).value })}
+            onInput={(event) =>
+              setWebdav({ username: (event.target as HTMLInputElement).value })}
           />
         </Field>
         <Field label={t("options.webdav.password")}>
@@ -522,27 +656,38 @@ function WebdavSection(
             class="xl-input"
             type="password"
             value={webdav.password}
-            onInput={(event) => setWebdav({ password: (event.target as HTMLInputElement).value })}
+            onInput={(event) =>
+              setWebdav({ password: (event.target as HTMLInputElement).value })}
           />
         </Field>
       </div>
-      <Field label={t("options.webdav.passphrase")} hint={t("options.webdav.passphraseHint")}>
+      <Field
+        label={t("options.webdav.passphrase")}
+        hint={t("options.webdav.passphraseHint")}
+      >
         <input
           class="xl-input"
           type="password"
           value={webdav.passphrase}
-          onInput={(event) => setWebdav({ passphrase: (event.target as HTMLInputElement).value })}
+          onInput={(event) =>
+            setWebdav({ passphrase: (event.target as HTMLInputElement).value })}
         />
       </Field>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="xl-btn xl-btn-ghost" type="button" disabled={props.busy} onClick={props.onSave}>
+        <button
+          class="xl-btn xl-btn-ghost"
+          type="button"
+          disabled={props.busy}
+          onClick={props.onSave}
+        >
           {t("options.webdav.test")}
         </button>
         <button
           class="xl-btn xl-btn-primary"
           type="button"
           disabled={props.busy}
-          onClick={() => props.onSync("push")}
+          onClick={() =>
+            props.onSync("push")}
         >
           {t("options.webdav.push")}
         </button>
@@ -550,7 +695,8 @@ function WebdavSection(
           class="xl-btn xl-btn-ghost"
           type="button"
           disabled={props.busy}
-          onClick={() => props.onSync("pull")}
+          onClick={() =>
+            props.onSync("pull")}
         >
           {t("options.webdav.pull")}
         </button>
