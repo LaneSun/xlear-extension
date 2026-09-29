@@ -122,7 +122,9 @@ docs/screenshots/ README 用的界面截图
 
 - **上架 AMO（listed）**：`main` 上 `package.json` 的版本号一变，`.github/workflows/amo-listed.yml`
   自动打包并 `web-ext sign --channel=listed --approval-timeout=0`（提交完就返回，不等审核）。
-  同一个版本在 AMO 只能提交一次，重跑同一次推送会失败 —— 那是预期。手动补交见 `docs/RELEASING.md`。
+  同一个版本在 AMO 只能提交一次，重跑同一次推送会失败 —— 那是预期；也正因为这条限制，
+  `release.yml` 里原来的 unlisted 签名（自托管用的 `-signed.xpi`）已注释掉。
+  需要那个文件时按 `docs/RELEASING.md` 手动签一次。
 
 - **签名私钥永不入库**（`.gitignore` 有 `*.pem`）：一把钥匙对应一个扩展 ID，换钥匙等于换 ID。
   本地在 `~/.local/share/xlear/crx-key.pem`，CI 在仓库 secret `CRX_KEY`，两边都要离线备份。
@@ -138,8 +140,9 @@ docs/screenshots/ README 用的界面截图
 
 ## 仓库状态
 
-- 版本 0.5.0，已发布 `v0.5.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip`、`-signed.xpi` 与 `SHA256SUMS`）。
+- 版本 0.5.0，已发布 `v0.5.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
   Chrome 与 Firefox 构建通过，`pnpm run compile` 干净。
 - 0.5.0 的内容：在线提交开关、本地屏蔽被在线列表接管后退场；上架 AMO 由 `amo-listed` 工作流自动提交。
-- AMO 签名（unlisted，随 Release 挂 `-signed.xpi`）与 crx 自动更新（`updates.xml`）自 v0.4.0 起并入 main。
+- crx 自动更新（`updates.xml`）自 v0.4.0 起并入 main；自托管用的 unlisted 签名已注释掉
+  （各版本走 listed，两个通道对同一版本号只能提交一次，见「发版」）。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。

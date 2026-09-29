@@ -50,37 +50,48 @@ jobs:
           XL_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases
         run: pnpm run pack
 
-      - name: 看看有没有 AMO 凭据（没有就跳过签名）
-        id: amo
-        env:
-          MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
-        run: |
-          if [ -z "$MOZILLA_API_KEY" ]; then
-            echo "::notice::未配置 MOZILLA_API_KEY / MOZILLA_API_SECRET，跳过 xpi 签名。缺少签名时 Firefox 正式版无法安装，见 docs/RELEASING.md。"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: 让 AMO 给 xpi 签名（unlisted：自托管安装用）
-        if: steps.amo.outputs.enabled == 'true'
-        continue-on-error: true
-        env:
-          WEB_EXT_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
-          WEB_EXT_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
-        run: |
-          # unlisted 是唯一会把签好名的 xpi 交给我们的通道（官方文档原话）；
-          # 同一个版本号不能重复提交，所以重跑本工作流时这里会失败 —— 因此上面允许失败，
-          # 签名只是加成，不该把已经出来的构建挡回去。
-          npx --yes web-ext@latest sign \
-            --source-dir .output/firefox-mv3 \
-            --channel=unlisted \
-            --artifacts-dir .output/amo \
-            --no-input
-          for f in .output/amo/*.xpi; do
-            [ -e "$f" ] || continue
-            mv "$f" ".output/$(basename "$f" .xpi)-signed.xpi"
-          done
+      # ---------------------------------------------------------------------------
+      # 已停用：unlisted 签名（自托管安装用的 …-signed.xpi）。
+      #
+      # 原因：AMO 对同一个版本号只接受一次提交，而 `amo-listed` 工作流会在 main 上版本号变化时
+      # 先把这一版交到 listed（公开列表页，签名文件由 AMO 托管）；那之后这里再签 unlisted
+      # 必然报 "Version X already exists."。listed 是面向用户的通道，所以这里让位。
+      #
+      # 需要自托管用的签名 xpi 时，用 docs/RELEASING.md 里的手动命令单独签一次
+      # （同一个版本只能签一次）。要重新启用，去掉下面这些行的注释即可。
+      # ---------------------------------------------------------------------------
+      #
+      # - name: 看看有没有 AMO 凭据（没有就跳过签名）
+      #   id: amo
+      #   env:
+      #     MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+      #   run: |
+      #     if [ -z "$MOZILLA_API_KEY" ]; then
+      #       echo "::notice::未配置 MOZILLA_API_KEY / MOZILLA_API_SECRET，跳过 xpi 签名。缺少签名时 Firefox 正式版无法安装，见 docs/RELEASING.md。"
+      #       echo "enabled=false" >> "$GITHUB_OUTPUT"
+      #     else
+      #       echo "enabled=true" >> "$GITHUB_OUTPUT"
+      #     fi
+      #
+      # - name: 让 AMO 给 xpi 签名（unlisted：自托管安装用）
+      #   if: steps.amo.outputs.enabled == 'true'
+      #   continue-on-error: true
+      #   env:
+      #     WEB_EXT_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+      #     WEB_EXT_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
+      #   run: |
+      #     # unlisted 是唯一会把签好名的 xpi 交给我们的通道（官方文档原话）；
+      #     # 同一个版本号不能重复提交，所以重跑本工作流时这里会失败 —— 因此上面允许失败。
+      #     npx --yes web-ext@latest sign \
+      #       --source-dir .output/firefox-mv3 \
+      #       --channel=unlisted \
+      #       --artifacts-dir .output/amo \
+      #       --no-input
+      #     for f in .output/amo/*.xpi; do
+      #       [ -e "$f" ] || continue
+      #       mv "$f" ".output/$(basename "$f" .xpi)-signed.xpi"
+      #     done
+      #
 
       - name: 建 Release 并挂产物
         env:

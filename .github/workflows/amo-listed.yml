@@ -1,8 +1,9 @@
 # main 上版本号一变，就把这一版提交到 AMO 的 listed（公开列表页）通道。
 #
-# 与 release.yml 的分工：release.yml 由 `v*` 标签触发，负责出发布包、建 GitHub Release，
-# 并给 firefox 构建做一次 unlisted 签名（自托管安装用）；这里管的是**上架**：
-# listed 是往公开列表页提交新版本，签名后的 xpi 由 AMO 托管，不会返回给我们。
+# 与 release.yml 的分工：release.yml 由 `v*` 标签触发，负责出发布包、建 GitHub Release；
+# 这里管的是**上架**：listed 是往公开列表页提交新版本，签名后的 xpi 由 AMO 托管，不会返回给我们。
+# 两个通道对同一个版本号只能提交一次，所以 release.yml 里原来的 unlisted 签名（自托管用的
+# …-signed.xpi）已经注释掉 —— 交到这里之后，再去签 unlisted 必然报 "Version X already exists."。
 #
 # `--approval-timeout=0` = 提交完立刻返回，不等人工审核（结果由 AMO 邮件通知）。
 #

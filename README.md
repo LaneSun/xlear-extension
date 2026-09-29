@@ -59,10 +59,12 @@ and every listed account can be appealed on the website.
 
 ## Install (release builds)
 
-Grab a build from [Releases](https://github.com/LaneSun/xlear-extension/releases):
+Installs come from [Releases](https://github.com/LaneSun/xlear-extension/releases) or from
+[addons.mozilla.org](https://addons.mozilla.org/firefox/addon/xlear/):
 
-- `xlear-extension-X.Y.Z-signed.xpi` — Firefox, **signed by AMO**, installs in release Firefox
-  (present only for releases built with AMO credentials configured).
+- Firefox, **signed by AMO**: install it from
+  [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/xlear/). Releases no longer attach a
+  signed xpi — every version is submitted to the public listing instead (see `docs/RELEASING.md`).
 - `xlear-extension-X.Y.Z.xpi` — Firefox unsigned: release Firefox only installs AMO-signed
   extensions; use Developer Edition / Nightly with `xpinstall.signatures.required = false`,
   or sign it on AMO yourself.

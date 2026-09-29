@@ -51,10 +51,11 @@ Xlear 把它变成一份共享名单：一个人举报，AI 复核证据后入�
 
 ## 安装（发布包）
 
-在 [Releases](https://github.com/LaneSun/xlear-extension/releases) 下载：
+安装包来自 [Releases](https://github.com/LaneSun/xlear-extension/releases) 或
+[addons.mozilla.org](https://addons.mozilla.org/firefox/addon/xlear/)：
 
-- `xlear-extension-X.Y.Z-signed.xpi` —— Firefox，**已由 AMO 签名**，正式版可直接安装（配置了
-  AMO 凭据的发布才会有这个文件）。
+- Firefox，**已由 AMO 签名**：从 [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/xlear/) 安装。
+  Release 不再附带签名 xpi —— 每个版本改为提交到公开列表页（见 `docs/RELEASING.md`）。
 - `xlear-extension-X.Y.Z.xpi` —— Firefox 未签名包：正式版 Firefox 只装 AMO 签名的扩展，
   要用它请换 Developer Edition / Nightly 并把 `xpinstall.signatures.required` 设为 `false`，
   或自行在 AMO 签名。
