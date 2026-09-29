@@ -1,7 +1,7 @@
 /** 弹窗与设置页共用的小组件。图标统一从 lucide 取，尺寸与线宽由 Icon 兜住。 */
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ListSummary } from "../../shared/types.ts";
+import type { ListSummary } from "../../contract/types.ts";
 import {
   Ellipsis,
   ListPlus,
@@ -12,14 +12,14 @@ import {
 } from "lucide-preact";
 import { t } from "../i18n.ts";
 import type { LocalListRow } from "../core/messaging.ts";
-// 叶子模块按相对路径引入：页面与内容脚本都不该被 shared/mod.ts 的整桶依赖拖累。
+// 叶子模块按相对路径引入：页面与内容脚本都不该被 contract/mod.ts 的整桶依赖拖累。
 import {
   LOGO_SHIELD,
   LOGO_VIEWBOX,
   LOGO_X_ARMS,
   LOGO_X_CLIP,
   LOGO_X_STROKE,
-} from "../../shared/logo.ts";
+} from "../../contract/logo.ts";
 
 export function Icon(
   { icon: Glyph, size = 16, class: extraClass, ...rest }: LucideProps & {

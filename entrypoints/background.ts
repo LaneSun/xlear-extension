@@ -6,7 +6,7 @@
  */
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
-import type { ListSummary, ReportSubmitResult } from "../shared/types.ts";
+import type { ListSummary, ReportSubmitResult } from "../contract/types.ts";
 import { applyLocale, t } from "../src/i18n.ts";
 import { fetchLists, submitCandidate } from "../src/core/api.ts";
 import {

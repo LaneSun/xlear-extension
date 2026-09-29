@@ -2,7 +2,7 @@ import type { LocalListRow } from "../../src/core/messaging.ts";
 import { render } from "preact";
 import { browser } from "wxt/browser";
 import { useEffect, useState } from "preact/hooks";
-import type { ListSummary } from "../../shared/types.ts";
+import type { ListSummary } from "../../contract/types.ts";
 import type {
   ConfigResponse,
   ListsResponse,

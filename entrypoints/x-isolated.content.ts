@@ -6,7 +6,7 @@
  */
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
-import type { ListSummary } from "../shared/types.ts";
+import type { ListSummary } from "../contract/types.ts";
 import type {
   ListsResponse,
   LocalListRow,

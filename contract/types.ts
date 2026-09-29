@@ -1,6 +1,6 @@
 import type { SubmitResult } from "./constants.ts";
 
-/** 扩展用到的接口数据形状（与服务端契约同源，按引用裁剪）。 */
+/** 扩展用到的接口数据形状。 */
 
 export interface AccountCreateResponse {
   accountId: string;

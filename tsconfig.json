@@ -13,6 +13,6 @@
       "~/*": ["./*"]
     }
   },
-  "include": ["entrypoints", "src", "wxt.config.ts", "shared/**/*.ts"],
+  "include": ["entrypoints", "src", "wxt.config.ts", "contract/**/*.ts"],
   "exclude": ["node_modules", ".output"]
 }

@@ -7,8 +7,8 @@ import type {
   ReportSubmission,
   ReportsResponse,
   SnapshotLine,
-} from "../../shared/types.ts";
-import { API } from "../../shared/constants.ts";
+} from "../../contract/types.ts";
+import { API } from "../../contract/constants.ts";
 import { SERVER_URL } from "./server.ts";
 import { t } from "../i18n.ts";
 import { localeSignal } from "./locale.ts";

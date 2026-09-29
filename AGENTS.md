@@ -1,27 +1,9 @@
 # AGENTS.md
 
-Xlear 扩展的开发约定。设计与上手见 `README.md`；服务端在另一个仓库（`xlear`）。
+Xlear 扩展的开发约定。设计与上手见 `README.md`。
 
-## 尽最大努力（对所有任务生效）
-
-- **自己做完、自己验证**：除下面三类之外，不要把事交回给所有者去做或去验 ——
-  1. 必须由他决定的事（对外承诺、花钱、动他的 X 账号、删数据、改产品方向）；
-  2. 只有他能提供的信息（例如他账号里的实际内容、他的偏好）；
-  3. 真正需要他授权的破坏性操作。
-  验证手段是齐备的（CDP 连扩展自己的页面、脚本、构建、测试），**没有理由停在"编译过了"**。
-- **验证 = 当前状态下的直接证据**：命令输出、实测读数、DOM/存储对比、真实页面现象。
-  拿不到证据时说清缺什么并换手段继续试，**不要用"需所有者操作浏览器"这类话代替验证**。
-- **遇到障碍先怪工具与自己的方法，再考虑放弃**：换参数、换入口、换思路；同类失败两次以上就换路子，别重复同一个探针。
-- **提交前把门槛跑绿**：`deno task check` / `deno task test` / 扩展 `pnpm run compile` 与两套构建。
-- **汇报只给结论与证据**：自己错了就直接说错在哪，不为难处找说法，也不把未验证的东西说成已验证。
-
-## 语言
-
-- 与所有者用中文交流；注释、提交信息与开发文档用中文。
-- `README.md` 用英文（面向用户），中文版放 `README.zh.md`，两者内容保持同步。
-- 代码标识符、路径、键名用英文；界面品牌一律写 **Xlear**。
-- 界面提供中文 / English / 日本語 / Русский，**主要语言是英文**：只有一份、无法按读者切换的内容
-  （弹窗标题里的理由文案、注入卡片的说明）按调用方传入的语言渲染。
+本仓库是 `xlear`（服务端应用）的 **`extension/` 子模块**：通用约定（尽力而为、语言、门槛、提交与分支规则）
+以父仓库根目录的 `AGENTS.md` 为准，这里只写扩展特有的规则；两者冲突时以本文档为准。
 
 ## 硬性规则
 - **不主动操作 X 页面**：所有者的账号与窗口归他本人，需要看 X 上的现象时先问。
@@ -51,6 +33,7 @@ Xlear 扩展的开发约定。设计与上手见 `README.md`；服务端在另�
    **只有维护者明确要求升版本时**，才把 main 推到要发布的那个提交（`jj bookmark set main -r @`）
    并打 `vX.Y.Z` 标签；**版本号（`package.json` 的 `version`）也只在维护者明确指示时改**。
    维护者明确要求的流程/文档修正可以直接进 main（这类改动不发版）。
+   子模块里的提交完成后，父仓库要更新一次子模块指针（见父仓库的"提交"一节）。
 
 ## 工具链
 
@@ -62,7 +45,7 @@ Node 22+ 与 pnpm：`pnpm install` · `build` · `build:firefox` · `zip:firefox
 
 - 内容脚本渲染原生 DOM，不渲染 Preact 组件（ISOLATED 世界打包后 hooks 上下文会指向另一个实例）；
   `@preact/signals` 的 `signal()` 不依赖 hooks 上下文，可用。
-- 内容脚本不经 `shared/mod.ts` 桶文件（会连 zod 与全部字典一起打包），只按相对路径取叶子模块。
+- 内容脚本不经桶文件（会连全部字典一起打包），只按相对路径取叶子模块。
 - 内容脚本的语言必须在拿到配置之后再设，否则会出现「列表名俄语、按钮中文」。
 - `document_start` 时 `document.head` 可能为 null，注入样式用 `document.head ?? document.documentElement`。
 - 模拟点击要派发完整事件序列（pointerdown → mousedown → pointerup → mouseup → click）。
@@ -71,11 +54,12 @@ Node 22+ 与 pnpm：`pnpm install` · `build` · `build:firefox` · `zip:firefox
 - 扩展页面的间距必须显式写：`styles.css` 带 Tailwind preflight，`p`/`h1` 的默认边距已被清零。
 - Preact 的 SVG 属性必须用连字符写法（`stroke-width`、`clip-path`），camelCase 会被原样写进 DOM；
   lucide 图标的类名走 `className`。
-- 字典里加键要防重名：`mergeDicts()` 遇到重复键直接抛错。四列必须齐全，缺列或空串由服务端的测试拦下。
+- 字典里加键要防重名：`mergeDicts()` 遇到重复键直接抛错。四列必须齐全，缺列或空串由父仓库的测试拦下。
+- `contract/` 只放扩展真正用到的契约叶子：类型、API 路径、品牌几何、四语言字典。这里是父仓库
+  `contract/` 的**裁剪副本**（不带 zod、不带后台与站点的字典），改契约时两边一起改。
 - TypeScript 开了 `noUnusedLocals` / `noUnusedParameters`，它翻出的死代码要清掉。
 - 改完扩展产物：清掉 profile 的 `Service Worker` 目录再重启浏览器；不要用 `chrome://extensions`
   的「重新加载」（后台会不再注册）。
-- `shared/` 与服务端仓库同源；改契约（类型、常量、字典）时两边一起改。
 - 版本号只在 `package.json` 写一次，WXT 取它填清单并用于打包文件名。
 
 ## 结构与构建
@@ -85,7 +69,7 @@ entrypoints/     background、两个内容脚本（x-main / x-isolated）、popu
 src/core/        存储、同步、账号、举报、权限、服务端地址常量
 src/x/           选择器、扫描器、过滤引擎、理由弹窗、点击辅助、主题变量
 src/ui/          共享组件（列表选择器、标志、图标）与样式
-shared/          与服务端同源的契约：类型、API 路径、品牌几何、四语言字典
+contract/        契约的裁剪副本：类型、API 路径、品牌几何、四语言字典
 public/icon/     清单与工具栏图标（PNG）；assets/ 放不参与运行时的标志源文件
 docs/screenshots/ README 用的界面截图
 ```
@@ -93,7 +77,9 @@ docs/screenshots/ README 用的界面截图
 - `pnpm build` / `build:firefox` / `zip:firefox` / `compile`；产物在 `.output/`。
 - 服务端地址只在 `src/core/server.ts` 写一次，清单的 `host_permissions` 由它派生。
 - 版本号只在 `package.json` 写一次，WXT 取它填清单并用于打包文件名。
-- `shared/` 是本仓库自带的一份客户端契约（按引用裁剪）；改契约时与服务端仓库一起改。
+- 算法与数据层的测试在父仓库；本仓库以类型检查与真机构建验证为主。父仓库的
+  `tests/i18n_test.ts` 会扫本仓库的 `src/`、`entrypoints/` 与根目录，校验 `t()` 用到的键都存在于字典 ——
+  在这里加文案键时，父仓库字典要同步加上。
 
 ## 关键设计
 
@@ -135,14 +121,9 @@ docs/screenshots/ README 用的界面截图
 `wxt@0.21`、`preact@10.29`、`@preact/signals@2.11`、`@preact/preset-vite@2.10`、`tailwindcss@4.3`、
 `lucide-preact@1.47`、`idb@8`；构建需要 Node 22+ 与 pnpm。
 
-## 提交
-
-用 `jj` 做版本管理，提交信息用中文，首行概括变更。不要用 `git commit`（`git` 仅用于底层协作）。
-开发走 `dev-<主题>` 分支，main 只在发版时前进；版本号只在维护者明确指示时改（见硬性规则）。
-
 ## 仓库状态
 
-- 版本 0.3.0，已发布 `v0.2.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
-  Chrome 与 Firefox 构建通过，`pnpm compile` 干净。
-- 测试在服务端仓库（算法与数据层）；本仓库以类型检查与真机构建验证为主。
+- 版本 0.3.0，已发布 `v0.3.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
+  Chrome 与 Firefox 构建通过，`pnpm run compile` 干净。
+- AMO 签名与 crx 自动更新（`updates.xml`）已在 `dev-amo-sign` 分支完成，尚未并入 main。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。

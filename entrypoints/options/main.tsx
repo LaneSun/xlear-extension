@@ -5,7 +5,7 @@ import {
 } from "../../src/ui/components.tsx";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import type { ListSummary } from "../../shared/types.ts";
+import type { ListSummary } from "../../contract/types.ts";
 import type {
   AllowListResponse,
   ConfigResponse,

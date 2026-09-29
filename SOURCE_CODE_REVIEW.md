@@ -25,7 +25,7 @@ output.
 | `src/x/` | Everything that touches the x.com DOM: the scanner glue, filtering, the block dialog, the context-menu interceptor and the click executor |
 | `src/core/` | Accounts, API calls, messaging, storage, sync |
 | `src/ui/` | Shared Preact components and the stylesheet |
-| `shared/` | Types, constants and the four-language dictionary |
+| `contract/` | Types, constants and the four-language dictionary |
 
 WXT 0.21 (Vite, TypeScript, Preact, Tailwind 4) bundles everything; there is **no remote code**,
 no runtime `eval` and no `new Function`. Tailwind's stylesheet is compiled at build time.

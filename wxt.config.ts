@@ -15,7 +15,7 @@ export default defineConfig({
     name: "Xlear",
     description: "共享的 X 过滤列表：命中名单的账号，帖子会被自动隐藏。",
     // 版本只在 package.json 里写一次（WXT 默认取它，打包文件名也用它）。
-    // 标志：白色盾牌 + 中间黑色 X（几何见 shared/logo.ts；PNG 由 assets/logo-solid.svg
+    // 标志：白色盾牌 + 中间黑色 X（几何见 contract/logo.ts；PNG 由 assets/logo-solid.svg
     // 渲染，透明底）。
     icons: {
       16: "icon/16.png",

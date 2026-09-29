@@ -5,7 +5,7 @@
  * 匹配、订阅列表、执行许可、提交举报、同步、配置与迁移。
  */
 import { browser } from "wxt/browser";
-import type { ListSummary, ReportSubmitResult } from "../../shared/types.ts";
+import type { ListSummary, ReportSubmitResult } from "../../contract/types.ts";
 import type { ExtensionConfig } from "./config.ts";
 import type { AllowRecord, OutboxRecord, OverlayRecord } from "./storage.ts";
 

@@ -5,7 +5,7 @@
  * （差量被压缩了），就整表重拉。同步结束会打一次订阅卡，用于服务端统计活跃度。
  */
 import { loadConfig, loadState, mutateState, patchConfig, type ExtensionConfig } from "./config.ts";
-import type { ListSummary } from "../../shared/types.ts";
+import type { ListSummary } from "../../contract/types.ts";
 import { fetchChanges, fetchLists, fetchSnapshot } from "./api.ts";
 import { applyChanges, countFiltered, replaceListSnapshot } from "./storage.ts";
 

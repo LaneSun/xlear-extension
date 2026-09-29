@@ -1,5 +1,5 @@
 /**
- * Xlear 标志的几何：一处定义，两端（扩展与服务端）共用。
+ * Xlear 标志的几何：界面上画标志与导出图标都取这里。
  *
  * 盾牌用 `currentColor` 填充，X 是镂空掩膜——深色页面上是"白盾 + 黑 X"，
  * 亮色页面上 currentColor 变深，自动成为"黑盾 + 白 X"。
@@ -8,8 +8,7 @@
  * 45° 交叉 + 水平裁切时，X 的宽度恒等于"高度 + 笔画 × √2"，所以笔画越细越显窄。
  *
  * 两个不参与运行时的产物由这套几何导出，改这里要同步它们：
- * `extension/assets/logo.svg`（主题感知版）、`extension/assets/logo-solid.svg`（图标 PNG 的源）、
- * 网站的 favicon 内联了同一份路径。
+ * `assets/logo.svg`（主题感知版）、`assets/logo-solid.svg`（图标 PNG 的源）。
  */
 export const LOGO_VIEWBOX = "0 0 128 128";
 

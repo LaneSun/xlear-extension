@@ -4,7 +4,7 @@
  * 每次提交都先写本地 outbox，再尝试发出；失败就留在队列里，由定时任务重试。
  * 这样即使服务端临时不可用，用户的屏蔽动作也不会白做。
  */
-import type { ReportSubmitResult } from "../../shared/types.ts";
+import type { ReportSubmitResult } from "../../contract/types.ts";
 import { submitReports } from "./api.ts";
 import { ensureAccount } from "./account.ts";
 import { deleteReport, enqueueReport, listReportQueue, updateReport } from "./storage.ts";

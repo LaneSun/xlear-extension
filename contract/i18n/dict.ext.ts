@@ -368,12 +368,6 @@ export const EXT_DICT: Dict = {
     "Проверить селекторы",
   ],
   "options.diagnostics.title": ["Diagnostics", "诊断", "診断", "Диагностика"],
-  "options.lastSyncError": [
-    "Problem during the last sync: {error}",
-    "最近一次同步的问题：{error}",
-    "前回の同期の問題：{error}",
-    "Проблема при последней синхронизации: {error}",
-  ],
   "options.lists.empty": [
     "No lists available yet.",
     "暂时没有可订阅的列表。",

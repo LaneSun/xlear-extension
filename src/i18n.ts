@@ -4,9 +4,9 @@
  * 语言优先取用户配置；配置为 auto 时跟随浏览器界面语言，最终回退英文（主要语言）。
  * 内容脚本请改用 i18n.content.ts：它只带 COMMON + EXT 两张表，注入体积小得多。
  */
-// 叶子模块导入：桶文件（@xlear/shared）会把 schemas 连带 zod 一起打进产物，扩展侧并不需要。
-import { translate, type Params } from "../shared/i18n/index.ts";
-import { DICT } from "../shared/i18n/bundle.ts";
+// 只取叶子模块，不经过桶文件：用不到的字典不该进产物。
+import { translate, type Params } from "../contract/i18n/index.ts";
+import { DICT } from "../contract/i18n/bundle.ts";
 import { applyLocale, localeSignal } from "./core/locale.ts";
 
 export { applyLocale, localeSignal };
