@@ -7,6 +7,8 @@
 import type { ReportSubmitResult } from "../../contract/types.ts";
 import { submitReports } from "./api.ts";
 import { ensureAccount } from "./account.ts";
+import { loadConfig } from "./config.ts";
+import { submissionsAllowed } from "./submission.ts";
 import { deleteReport, enqueueReport, listReportQueue, updateReport } from "./storage.ts";
 
 export interface ReportTarget {
@@ -20,6 +22,17 @@ export interface ReportTweet {
   text?: string;
 }
 
+/**
+ * 一次举报的去向。
+ *
+ * `submitted` 说的是**面向服务端的那部分有没有真的发出去**：关闭「在线提交」后它是 false，
+ * 界面据此如实说明"只在本机生效"，而不是让用户以为举报已经交上去了。
+ */
+export interface ReportOutcome {
+  results: ReportSubmitResult[];
+  submitted: boolean;
+}
+
 const MAX_ATTEMPTS = 5;
 
 /** 把一次屏蔽动作提交到平台（可多列表）。返回逐列表的结果。 */
@@ -27,8 +40,13 @@ export async function submitBlockReport(
   target: ReportTarget,
   listIds: readonly string[],
   tweet: ReportTweet,
-): Promise<ReportSubmitResult[]> {
-  if (listIds.length === 0) return [];
+): Promise<ReportOutcome> {
+  if (listIds.length === 0) return { results: [], submitted: true };
+  // 「在线提交」关闭时既不提交、也不进队列：队列是"待发"的意思，进了就会在重新打开后
+  // 自动补发，那不是用户关掉它时的预期。已经躺在队列里的（开关还开着时留下的）不动。
+  if (!submissionsAllowed(await loadConfig())) {
+    return { results: [], submitted: false };
+  }
   for (const listId of listIds) {
     await enqueueReport({
       listId,
@@ -41,13 +59,14 @@ export async function submitBlockReport(
       attempts: 0,
     });
   }
-  return await flushOutbox();
+  return { results: await flushOutbox(), submitted: true };
 }
 
-/** 冲掉队列里待发的举报。返回逐列表结果。 */
+/** 冲掉队列里待发的举报。返回逐列表结果；关闭「在线提交」时队列原样留着。 */
 export async function flushOutbox(): Promise<ReportSubmitResult[]> {
   const queue = await listReportQueue();
   if (queue.length === 0) return [];
+  if (!submissionsAllowed(await loadConfig())) return [];
   const key = await ensureAccount();
   const results: ReportSubmitResult[] = [];
 

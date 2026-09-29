@@ -57,6 +57,10 @@ Node 22+ 与 pnpm：`pnpm install` · `build` · `build:firefox` · `zip:firefox
 - 字典里加键要防重名：`mergeDicts()` 遇到重复键直接抛错。四列必须齐全，缺列或空串由父仓库的测试拦下。
 - `contract/` 只放扩展真正用到的契约叶子：类型、API 路径、品牌几何、四语言字典。这里是父仓库
   `contract/` 的**裁剪副本**（不带 zod、不带后台与站点的字典），改契约时两边一起改。
+- 所有出站**写**请求都必须走 `src/core/api.ts` 的写路径（`write()`）：它按 `src/core/submission.ts`
+  的判断，在「在线提交」关闭时直接拒绝。新增会写服务端的功能时不要绕开它，否则开关会失效。
+- 配置的形状、默认值与归一化在 `src/core/settings.ts`（纯数据，父仓库的单测直接引用它）；
+  `src/core/config.ts` 只管 storage 读写。
 - TypeScript 开了 `noUnusedLocals` / `noUnusedParameters`，它翻出的死代码要清掉。
 - 改完扩展产物：清掉 profile 的 `Service Worker` 目录再重启浏览器；不要用 `chrome://extensions`
   的「重新加载」（后台会不再注册）。
@@ -98,6 +102,10 @@ docs/screenshots/ README 用的界面截图
   于是本地列表被当成可订阅项）。屏蔽弹窗的名单来源是 `src/x/dialoglists.ts` 这个纯函数：
   已订阅的服务器列表 + 已启用的本地列表。
 
+- **在线提交**：设置页常规选项卡下的开关，默认开启；关掉后**只读不写** —— 举报不进队列
+  （队列是"待发"的意思，进了就会在重新打开后补发）、自建列表的名称与理由只落本机。
+  设置页的提示、弹窗的状态标记、屏蔽理由弹窗的回执，都要如实说明"只在本机生效"。
+
 ## X 平台要点
 
 - 帖子 fiber 已含作者数字 ID、screenName、正文与媒体；不解析 GraphQL，也不包装 `fetch`/`XHR`。
@@ -126,4 +134,5 @@ docs/screenshots/ README 用的界面截图
 - 版本 0.4.0，已发布 `v0.4.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip`、`-signed.xpi` 与 `SHA256SUMS`）。
   Chrome 与 Firefox 构建通过，`pnpm run compile` 干净。
 - AMO 签名（unlisted，随 Release 挂 `-signed.xpi`）与 crx 自动更新（`updates.xml`）已随 v0.4.0 并入 main。
+- 未发版：0.5.0 的「在线提交」开关在 `dev-online-switch` 分支（父仓库同分支有配套的契约键与单测）。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。

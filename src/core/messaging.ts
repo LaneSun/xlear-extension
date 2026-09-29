@@ -6,7 +6,7 @@
  */
 import { browser } from "wxt/browser";
 import type { ListSummary, ReportSubmitResult } from "../../contract/types.ts";
-import type { ExtensionConfig } from "./config.ts";
+import type { ExtensionConfig } from "./settings.ts";
 import type { AllowRecord, OutboxRecord, OverlayRecord } from "./storage.ts";
 
 /* ------------------------------- 内容脚本 ------------------------------- */
@@ -57,6 +57,11 @@ export interface SubmitRequest {
 
 export interface SubmitResponse {
   results: ReportSubmitResult[];
+  /**
+   * 面向服务端的那部分有没有真的发出去。
+   * 关闭「在线提交」时为 false —— 界面要如实告诉用户"只在本机生效"。
+   */
+  submitted: boolean;
   error?: string;
 }
 
@@ -117,6 +122,8 @@ export interface StatusRequest {
 
 export interface StatusResponse {
   enabled: boolean;
+  /** 是否允许向服务端提交（设置页的「在线提交」开关）。 */
+  onlineSubmission: boolean;
   lastSyncAt: number;
   lastSyncError?: string;
   entries: number;

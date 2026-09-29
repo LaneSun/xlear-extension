@@ -4,7 +4,8 @@
  * 需求：用户可以在别的设备上恢复数据，密钥一起带过去，但之后两端不再自动同步。
  * 因此这里是"推一份 / 拉一份"的显式操作，默认还会用口令加密（密钥本身也在里面）。
  */
-import { loadAccountKey, loadConfig, patchConfig, saveAccountKey, type ExtensionConfig } from "../core/config.ts";
+import { loadAccountKey, loadConfig, patchConfig, saveAccountKey } from "../core/config.ts";
+import type { ExtensionConfig } from "../core/settings.ts";
 import { exportAll, importAll, type ExportBundle } from "../core/storage.ts";
 
 const FILE_NAME = "xlear-sync.json";

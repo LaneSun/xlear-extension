@@ -4,7 +4,8 @@
  * 每个列表记一个已应用的版本号，之后只拉差量。如果服务端告知本地落后于保留水位
  * （差量被压缩了），就整表重拉。同步结束会打一次订阅卡，用于服务端统计活跃度。
  */
-import { loadConfig, loadState, mutateState, patchConfig, type ExtensionConfig } from "./config.ts";
+import { loadConfig, loadState, mutateState, patchConfig } from "./config.ts";
+import type { ExtensionConfig } from "./settings.ts";
 import type { ListSummary } from "../../contract/types.ts";
 import { fetchChanges, fetchLists, fetchSnapshot } from "./api.ts";
 import { applyChanges, countFiltered, replaceListSnapshot } from "./storage.ts";

@@ -14,11 +14,11 @@ import {
   loadAccountKey,
   loadConfig,
   loadState,
-  type LocalList,
   mutateState,
   patchConfig,
   todayKey,
 } from "../src/core/config.ts";
+import type { LocalList } from "../src/core/settings.ts";
 import type {
   AllowListResponse,
   ConfigResponse,
@@ -57,6 +57,7 @@ import {
   removeOverlayList,
 } from "../src/core/storage.ts";
 import { syncAll } from "../src/core/sync.ts";
+import { SubmissionDisabledError } from "../src/core/submission.ts";
 import {
   pullFromWebdav,
   pushToWebdav,
@@ -234,7 +235,10 @@ async function adoptOnlineLocalLists(): Promise<void> {
         [list.id],
         { id: entry.tweetId, url: entry.tweetUrl },
       );
-      if (results.some((result) => result.status !== "queued")) submitted++;
+      if (
+        results.submitted &&
+        results.results.some((result) => result.status !== "queued")
+      ) submitted++;
     }
     console.info(
       `[xlear] 自建列表已在线：${list.name}（提交 ${submitted}/${entries.length} 条，其余只留本地）`,
@@ -253,6 +257,7 @@ async function buildStatus(): Promise<StatusResponse> {
   ]);
   return {
     enabled: config.enabled,
+    onlineSubmission: config.onlineSubmission,
     lastSyncAt: state.lastSyncAt,
     lastSyncError: state.lastSyncError,
     entries,
@@ -368,12 +373,17 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         createdAt: Date.now(),
       };
       await patchConfig({ localLists: [...config.localLists, list] });
+      // 名单的名称与理由交一份给服务端留档（纯收集）；关闭「在线提交」时这一步会被拒绝，
+      // 本地创建与使用照常，其余失败只进控制台。
       void submitCandidate({
         id: list.id,
         name: list.name,
         reason: list.reason,
         ...(config.locale === "auto" ? {} : { locale: config.locale }),
-      }).catch(() => undefined);
+      }).catch((error) => {
+        if (error instanceof SubmissionDisabledError) return;
+        console.warn("[xlear] 自建列表留档失败", error);
+      });
       await notifyXTabs();
       return { id: list.id } satisfies LocalListResponse;
     }
@@ -440,20 +450,20 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         }
       }
       if (remoteTargets.length > 0) {
-        results.push(
-          ...await submitBlockReport(
-            { userId: message.userId, screenName: message.screenName },
-            remoteTargets,
-            {
-              id: message.tweetId,
-              url: message.tweetUrl,
-              text: message.tweetText,
-            },
-          ),
+        const outcome = await submitBlockReport(
+          { userId: message.userId, screenName: message.screenName },
+          remoteTargets,
+          {
+            id: message.tweetId,
+            url: message.tweetUrl,
+            text: message.tweetText,
+          },
         );
+        results.push(...outcome.results);
+        // 关掉「在线提交」时这里什么都没发，如实带回界面（本地列表那部分照常只落本机）。
+        return { results, submitted: outcome.submitted } satisfies SubmitResponse;
       }
-      const response: SubmitResponse = { results };
-      return response;
+      return { results, submitted: true } satisfies SubmitResponse;
     }
     case "addOverlay": {
       await addOverlay({

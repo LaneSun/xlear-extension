@@ -27,6 +27,9 @@ before it goes in, and from then on everyone subscribed to that list stops seein
   no fake buttons.
 - **Only hides.** Xlear never blocks, mutes or posts on its own. The block request is always sent by X,
   after you confirm it.
+- **You decide what is shared.** Online submission is on by default and can be turned off in
+  Settings → General: the extension then only reads the shared lists, and reports and new lists stay
+  on your device.
 - **Speaks your language.** English, 中文, 日本語, Русский.
 
 ## The filter lists

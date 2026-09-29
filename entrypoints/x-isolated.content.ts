@@ -96,6 +96,8 @@ export default defineContentScript({
           if (response.error) {
             return t("dialog.submitFailed", { error: response.error });
           }
+          // 「在线提交」关掉时什么都没发：不能让用户以为举报已经交上去了。
+          if (!response.submitted) return t("dialog.submitDisabled");
           const accepted = response.results.filter((item) =>
             item.status === "accepted"
           ).length;

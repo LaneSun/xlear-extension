@@ -5,9 +5,9 @@ import type { ConfigResponse, StatusResponse } from "../../src/core/messaging.ts
 import { sendMessage } from "../../src/core/messaging.ts";
 import { requestServerPermission } from "../../src/core/permissions.ts";
 import { SERVER_URL } from "../../src/core/server.ts";
-import { CircleAlert, EyeOff, Inbox, ListChecks, RefreshCw, Settings } from "lucide-preact";
+import { CircleAlert, CloudOff, EyeOff, Inbox, ListChecks, RefreshCw, Settings } from "lucide-preact";
 import { applyDocumentLocale, applyLocale, formatRelativeTime, localeSignal, t } from "../../src/i18n.ts";
-import { Banner, Card, Icon, Logo, Row, Spinner } from "../../src/ui/components.tsx";
+import { Banner, Card, Chip, Icon, Logo, Row, Spinner } from "../../src/ui/components.tsx";
 import "../../src/ui/styles.css";
 
 function Popup() {
@@ -95,6 +95,12 @@ function Popup() {
         <Banner tone="error">{t("ext.syncError", { error: status.lastSyncError })}</Banner>
       )}
       <Card>
+        {/* 关掉「在线提交」后，屏蔽只在本地生效 —— 在用户动手的地方如实标出来。 */}
+        {!status.onlineSubmission && (
+          <Row label={t("ext.onlineSubmission")} icon={CloudOff}>
+            <Chip>{t("common.disabled")}</Chip>
+          </Row>
+        )}
         <Row label={t("ext.localEntries")} icon={ListChecks}>
           <strong>{status.entries.toLocaleString()}</strong>
         </Row>

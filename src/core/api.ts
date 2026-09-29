@@ -10,6 +10,8 @@ import type {
 } from "../../contract/types.ts";
 import { API } from "../../contract/constants.ts";
 import { SERVER_URL } from "./server.ts";
+import { loadConfig } from "./config.ts";
+import { SubmissionDisabledError, submissionsAllowed } from "./submission.ts";
 import { t } from "../i18n.ts";
 import { localeSignal } from "./locale.ts";
 
@@ -62,6 +64,20 @@ async function request<T>(
   return await response.json() as T;
 }
 
+/**
+ * 写请求的唯一出口。
+ *
+ * 「在线提交」关闭时在这里直接拒绝：所有写请求都必须经过它，调用点无从绕过 ——
+ * 「关掉之后一个写请求都不发」这条保证只需要在这一个地方成立。
+ * 拒绝与失败是两回事：抛的是 `SubmissionDisabledError`，调用点据此走本地路径。
+ */
+async function write<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!submissionsAllowed(await loadConfig())) {
+    throw new SubmissionDisabledError();
+  }
+  return await request<T>(path, init);
+}
+
 export function fetchLists(): Promise<ListsResponse> {
   return request<ListsResponse>(API.lists);
 }
@@ -112,7 +128,7 @@ export async function fetchSnapshot(
 
 /** 按需申请账号。仅在用户第一次提交举报时调用。 */
 export function createAccount(): Promise<AccountCreateResponse> {
-  return request<AccountCreateResponse>(API.account, { method: "POST" });
+  return write<AccountCreateResponse>(API.account, { method: "POST" });
 }
 
 export function fetchMe(key: string): Promise<AccountMeResponse> {
@@ -125,14 +141,14 @@ export function fetchMe(key: string): Promise<AccountMeResponse> {
 export function submitCandidate(
   payload: { id: string; name: string; reason: string; locale?: string },
 ): Promise<unknown> {
-  return request(API.candidates, { method: "POST", body: JSON.stringify(payload) });
+  return write(API.candidates, { method: "POST", body: JSON.stringify(payload) });
 }
 
 export function submitReports(
   key: string,
   submission: ReportSubmission,
 ): Promise<ReportsResponse> {
-  return request<ReportsResponse>(API.reports, {
+  return write<ReportsResponse>(API.reports, {
     method: "POST",
     headers: {
       "content-type": "application/json",

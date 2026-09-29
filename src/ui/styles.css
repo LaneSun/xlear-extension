@@ -15,7 +15,8 @@
   --accent-hover: #1a8cd8;
   --danger: #f4212e;
   --success: #00ba7c;
-  --warning: #ffd400;
+  /* 提醒色：偏暗的琥珀，白底上当作文字与边框都读得清（不是 X 的亮黄）。 */
+  --warning: #b45309;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +27,7 @@
     --border: #2f3336;
     --text: #e7e9ea;
     --muted: #71767b;
+    --warning: #f0b429;
   }
 }
 

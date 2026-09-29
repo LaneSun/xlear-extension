@@ -1,147 +1,30 @@
 import { browser } from "wxt/browser";
-/** 扩展侧的配置：存储形态、默认值与读写。 */
+import { type ExtensionConfig, normalizeConfig } from "./settings.ts";
 
-/** 界面语言：auto 跟随浏览器，其余是受支持的语言代码。 */
-export type LocaleSetting = "auto" | "en" | "zh" | "ja" | "ru";
-
-/**
- * 用户自己建的列表。
- *
- * 它首先是**用户自己的名单**：创建即在本机可用、可订阅、可举报，条目不出设备。
- * 名称与理由会交一份给服务端留作记录（平台据此收集，是否发展成在线列表由管理员决定），
- * 这件事不改变它在本地的工作方式。
- */
-export interface LocalList {
-  /** 客户端生成的 UUID；若日后被采纳为在线列表，沿用的就是它。 */
-  id: string;
-  /** 用户自己写的名称，原文，不做多语言化。 */
-  name: string;
-  /** 用户自己写的理由，原文。 */
-  reason: string;
-  /**
-   * 是否生效。
-   *
-   * 这是本地列表的"勾选"：停用之后它不再隐藏账号、也不出现在屏蔽理由弹窗里，
-   * 但条目原样留着 —— 与订阅列表的勾选是同一个动作，含义都是"这条名单现在算不算数"。
-   */
-  enabled: boolean;
-  createdAt: number;
-}
-
-export interface ExtensionConfig {
-  /** 已订阅的列表 ID。 */
-  subscriptions: string[];
-  /** 总开关。 */
-  enabled: boolean;
-  /** 界面语言，默认跟随浏览器。 */
-  locale: LocaleSetting;
-  /** 用户自建的本地列表。 */
-  localLists: LocalList[];
-  /** WebDAV 配置。 */
-  webdav: {
-    enabled: boolean;
-    url: string;
-    username: string;
-    password: string;
-    /** 加密口令；为空表示明文上传。 */
-    passphrase: string;
-  };
-}
-
-export const DEFAULT_CONFIG: ExtensionConfig = {
-  subscriptions: [],
-  localLists: [],
-  enabled: true,
-  locale: "auto",
-  webdav: {
-    enabled: false,
-    url: "",
-    username: "",
-    password: "",
-    passphrase: "",
-  },
-};
+/** 扩展侧配置的读写与归一化；形状与默认值在 `settings.ts`。 */
 
 const CONFIG_KEY = "config";
 
-/**
- * 读取配置：缺失字段用默认值补齐，**并且只保留当前定义里的键**。
- *
- * 选项会随版本增删，删掉的键如果继续跟着 spread 走，就会一直留在存储里、
- * 跟着导出文件与 WebDAV 同步漂到别的设备上。这里按默认值的键集重建一份干净的配置。
- */
+/** 读取配置：把存储里的原始值交给 `normalizeConfig()` 补默认值与不变量。 */
 export async function loadConfig(): Promise<ExtensionConfig> {
   const stored = await browser.storage.local.get(CONFIG_KEY);
-  const raw = (stored[CONFIG_KEY] ?? {}) as Partial<ExtensionConfig>;
-  const config: Record<string, unknown> = { ...DEFAULT_CONFIG };
-  for (const key of Object.keys(DEFAULT_CONFIG)) {
-    const value = (raw as Record<string, unknown>)[key];
-    if (value !== undefined) config[key] = value;
-  }
-  return {
-    ...(config as unknown as ExtensionConfig),
-    webdav: { ...DEFAULT_CONFIG.webdav, ...(raw.webdav ?? {}) },
-    localLists: normalizeLocalLists(raw.localLists),
-    // 不变量：订阅里只有服务器列表。本地列表走本地判定，绝不进网络路径 ——
-    // 早前的版本把它写进了订阅，于是同步器拿一个服务器不存在的 id 去问，界面报"列表不存在"。
-    subscriptions: (() => {
-      const local = new Set(
-        normalizeLocalLists(raw.localLists).map((list) => list.id),
-      );
-      return [...new Set(raw.subscriptions ?? [])].filter((id) =>
-        !local.has(id)
-      );
-    })(),
-  };
-}
-
-/** 本地列表只保留形状正确的记录：存储可能来自旧版本或被手工改过。 */
-function normalizeLocalLists(raw: unknown): LocalList[] {
-  if (!Array.isArray(raw)) return [];
-  const lists: LocalList[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const { id, name, reason, createdAt, enabled } = item as Record<
-      string,
-      unknown
-    >;
-    if (typeof id !== "string" || id.length === 0) continue;
-    if (typeof name !== "string" || typeof reason !== "string") continue;
-    lists.push({
-      id,
-      name,
-      reason,
-      // 早先的版本没有这个字段：那时创建的列表就是生效的，补 true 才不会把老用户的名单停掉。
-      enabled: enabled !== false,
-      createdAt: Number(createdAt) || Date.now(),
-    });
-  }
-  return lists;
+  return normalizeConfig(stored[CONFIG_KEY]);
 }
 
 export async function saveConfig(config: ExtensionConfig): Promise<void> {
   await browser.storage.local.set({ [CONFIG_KEY]: config });
 }
 
+/** 改配置：合并补丁后过同一套归一化 —— 不变量与默认值只在一处维护。 */
 export async function patchConfig(
   patch: Partial<ExtensionConfig>,
 ): Promise<ExtensionConfig> {
   const current = await loadConfig();
-  const next: ExtensionConfig = {
+  const next = normalizeConfig({
     ...current,
     ...patch,
     webdav: { ...current.webdav, ...(patch.webdav ?? {}) },
-    subscriptions: (() => {
-      const localIds = new Set(
-        (patch.localLists ?? current.localLists).map((list) => list.id),
-      );
-      const next = patch.subscriptions
-        ? [...new Set(patch.subscriptions)]
-        : current.subscriptions;
-      return next.filter((id) => !localIds.has(id));
-    })(),
-    localLists: patch.localLists ?? current.localLists,
-  };
+  });
   await saveConfig(next);
   return next;
 }

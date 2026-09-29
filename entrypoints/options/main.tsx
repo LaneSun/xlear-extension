@@ -18,10 +18,11 @@ import type {
   WebdavResultResponse,
 } from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
-import type { ExtensionConfig, LocaleSetting } from "../../src/core/config.ts";
+import type { ExtensionConfig, LocaleSetting } from "../../src/core/settings.ts";
 import type { AllowRecord, OverlayRecord } from "../../src/core/storage.ts";
 import { exportToFile, importFromFile } from "../../src/sync/webdav.ts";
 import {
+  CloudUpload,
   Eraser,
   Globe,
   Inbox,
@@ -294,6 +295,39 @@ function Options() {
 
       {tab === "general" && (
         <>
+          {/*
+            在线提交：这个开关决定扩展是"只读"还是"也写"。
+            关掉之后仍然同步列表、仍然在本机隐藏，只是什么都不再发上去 —— 所以提示要写清代价。
+          */}
+          <Card
+            title={t("options.online.title")}
+            icon={CloudUpload}
+            action={
+              <input
+                class="xl-switch"
+                type="checkbox"
+                aria-label={t("options.online.title")}
+                checked={config.onlineSubmission}
+                disabled={busy}
+                onChange={(event) =>
+                  void patchConfigValue({
+                    onlineSubmission:
+                      (event.target as HTMLInputElement).checked,
+                  })}
+              />
+            }
+          >
+            {!config.onlineSubmission && (
+              <Banner tone="warn">{t("options.online.note")}</Banner>
+            )}
+            <p
+              class="xl-muted"
+              style="margin: 0; font-size: 13px; line-height: 18px;"
+            >
+              {t("options.online.hint")}
+            </p>
+          </Card>
+
           <Card title={t("common.language")} icon={Globe}>
             <Field label={t("common.language")}>
               <select

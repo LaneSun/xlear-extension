@@ -188,12 +188,17 @@ export function Chip(
 }
 
 export function Banner(
-  props: { tone: "info" | "error" | "success"; children: ComponentChildren },
+  props: {
+    tone: "info" | "error" | "success" | "warn";
+    children: ComponentChildren;
+  },
 ) {
   const color = props.tone === "error"
     ? "var(--danger)"
     : props.tone === "success"
     ? "var(--success)"
+    : props.tone === "warn"
+    ? "var(--warning)"
     : "var(--accent)";
   return (
     <div

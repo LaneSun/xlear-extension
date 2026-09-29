@@ -59,6 +59,12 @@ export const EXT_DICT: Dict = {
     "В этих списках уже есть такая заявка.",
   ],
   "dialog.processing": ["Working…", "处理中…", "処理中…", "Обработка…"],
+  "dialog.submitDisabled": [
+    "Online submission is off, so this report only applies on this device.",
+    "在线提交已关闭，本次举报只在本机生效。",
+    "オンライン送信がオフのため、この報告はこの端末内でのみ有効です。",
+    "Онлайн-отправка выключена — эта жалоба действует только на этом устройстве.",
+  ],
   "dialog.submitFailed": [
     "Report failed: {error}",
     "提交失败：{error}",
@@ -162,6 +168,12 @@ export const EXT_DICT: Dict = {
     "Доступ к серверу не предоставлен, синхронизация невозможна.",
   ],
   "ext.options": ["Options", "选项", "設定", "Настройки"],
+  "ext.onlineSubmission": [
+    "Online submission",
+    "在线提交",
+    "オンライン送信",
+    "Онлайн-отправка",
+  ],
   "ext.outbox": [
     "Submissions waiting to retry",
     "待重试的提交",
@@ -410,6 +422,24 @@ export const EXT_DICT: Dict = {
     "，{n} 个列表失败",
     "（{n} 件のリストが失敗）",
     " (ошибок в списках: {n})",
+  ],
+  "options.online.title": [
+    "Online submission",
+    "在线提交",
+    "オンライン送信",
+    "Онлайн-отправка",
+  ],
+  "options.online.hint": [
+    "When on, the lists you create and the accounts you report are sent to the server, so everyone shares the same filters. Everything else stays on this device.",
+    "开启时，你创建的列表与举报的账号会提交到服务端，大家共享同一份过滤信息；其余一切都在本机。",
+    "オンのとき、作成したリストと報告したアカウントがサーバーに送信され、同じフィルターをみんなで共有します。それ以外はすべてこの端末内で完結します。",
+    "Когда включено, созданные списки и жалобы на аккаунты отправляются на сервер — так фильтры общие для всех. Всё остальное остаётся на устройстве.",
+  ],
+  "options.online.note": [
+    "Not recommended: submitting is what keeps the lists shared, and the server stores no profile of you — no install ID, no device identifier, no IP address. With this off, reports and new lists never reach the platform.",
+    "不推荐关闭：提交正是名单能持续共享的原因，而且服务端不保存任何用户画像——没有安装 ID、没有设备标识、不记 IP 地址。关掉之后，举报与新建的列表都不会到达平台。",
+    "オフにすることはおすすめしません。送信があるからこそリストは共有され続けます。サーバーは利用者のプロファイルを保存しません（インストール ID・端末識別子・IP アドレスはいずれも記録しません）。オフにすると、報告と新しいリストはプラットフォームに届きません。",
+    "Отключать не рекомендуется: именно отправка поддерживает общие списки, а сервер не хранит профиль — ни идентификатора установки, ни метки устройства, ни IP-адреса. При выключенном переключателе жалобы и новые списки не попадут на платформу.",
   ],
   "options.syncStatus.title": [
     "Sync status",
