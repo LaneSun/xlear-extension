@@ -105,6 +105,9 @@ docs/screenshots/ README 用的界面截图
 - **在线提交**：设置页常规选项卡下的开关，默认开启；关掉后**只读不写** —— 举报不进队列
   （队列是"待发"的意思，进了就会在重新打开后补发）、自建列表的名称与理由只落本机。
   设置页的提示、弹窗的状态标记、屏蔽理由弹窗的回执，都要如实说明"只在本机生效"。
+- **在线条目接管本地覆盖**：每次同步后 `pruneOverlayCoveredByOnline()` 会把"该账号已经出现在那个
+  在线列表里"的覆盖条目摘掉（本地列表的条目永远保留）。规则本身是纯函数
+  （`src/core/overlay.ts` 的 `takeOverCoveredOverlay`）；不摘的话，界面会一直把它显示成"待复核"。
 
 ## X 平台要点
 
@@ -135,8 +138,8 @@ docs/screenshots/ README 用的界面截图
 
 ## 仓库状态
 
-- 版本 0.4.0，已发布 `v0.4.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip`、`-signed.xpi` 与 `SHA256SUMS`）。
+- 版本 0.5.0，已发布 `v0.5.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip`、`-signed.xpi` 与 `SHA256SUMS`）。
   Chrome 与 Firefox 构建通过，`pnpm run compile` 干净。
-- AMO 签名（unlisted，随 Release 挂 `-signed.xpi`）与 crx 自动更新（`updates.xml`）已随 v0.4.0 并入 main。
-- 未发版：0.5.0 的「在线提交」开关在 `dev-online-switch` 分支（父仓库同分支有配套的契约键与单测）。
+- 0.5.0 的内容：在线提交开关、本地屏蔽被在线列表接管后退场；上架 AMO 由 `amo-listed` 工作流自动提交。
+- AMO 签名（unlisted，随 Release 挂 `-signed.xpi`）与 crx 自动更新（`updates.xml`）自 v0.4.0 起并入 main。
 - 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。
