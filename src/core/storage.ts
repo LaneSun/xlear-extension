@@ -8,6 +8,7 @@
  * - `outbox`：提交失败待重试的举报。
  */
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
+import { takeOverCoveredOverlay } from "./overlay.ts";
 
 export interface FilteredRecord {
   userId: string;
@@ -315,6 +316,42 @@ export async function removeOverlayFromList(
 
 export async function listOverlay(): Promise<OverlayRecord[]> {
   return await (await db()).getAll("overlay");
+}
+
+/**
+ * 同步之后：在线条目已经接管走的那些覆盖条目退场。
+ *
+ * 判定本身是纯函数（`overlay.ts` 的 `takeOverCoveredOverlay`），这里只做 IndexedDB 的读写。
+ * 返回整条记录被删掉的个数（只缩短 `lists` 的不算）。
+ */
+export async function pruneOverlayCoveredByOnline(): Promise<number> {
+  const database = await db();
+  const records = await database.getAll("overlay");
+  if (records.length === 0) return 0;
+  const filtered = await Promise.all(
+    records.map((record) => database.get("filtered", record.userId)),
+  );
+  const online = new Map<string, string[]>();
+  for (const entry of filtered) {
+    if (entry) online.set(entry.userId, [...entry.lists]);
+  }
+  const kept = new Map(
+    takeOverCoveredOverlay(records, online).map((record) => [
+      record.userId,
+      record,
+    ]),
+  );
+  let removed = 0;
+  for (const record of records) {
+    const next = kept.get(record.userId);
+    if (!next) {
+      await database.delete("overlay", record.userId);
+      removed++;
+    } else if (next.lists.length !== record.lists.length) {
+      await database.put("overlay", next);
+    }
+  }
+  return removed;
 }
 
 /**

@@ -117,6 +117,10 @@ docs/screenshots/ README 用的界面截图
 `pnpm run pack`（= CI 用的同一条流程）产出 zip / xpi / crx / 源码包与 `SHA256SUMS`；
 推 `v*` 标签即由 `.github/workflows/release.yml` 建 Release 并挂产物。完整步骤见 `docs/RELEASING.md`。
 
+- **上架 AMO（listed）**：`main` 上 `package.json` 的版本号一变，`.github/workflows/amo-listed.yml`
+  自动打包并 `web-ext sign --channel=listed --approval-timeout=0`（提交完就返回，不等审核）。
+  同一个版本在 AMO 只能提交一次，重跑同一次推送会失败 —— 那是预期。手动补交见 `docs/RELEASING.md`。
+
 - **签名私钥永不入库**（`.gitignore` 有 `*.pem`）：一把钥匙对应一个扩展 ID，换钥匙等于换 ID。
   本地在 `~/.local/share/xlear/crx-key.pem`，CI 在仓库 secret `CRX_KEY`，两边都要离线备份。
 - 没有私钥时 `pnpm run pack` 会**直接失败**（不生成临时钥匙）—— 这是故意的。

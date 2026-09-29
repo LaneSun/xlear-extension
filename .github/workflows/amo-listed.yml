@@ -1,0 +1,109 @@
+# main 上版本号一变，就把这一版提交到 AMO 的 listed（公开列表页）通道。
+#
+# 与 release.yml 的分工：release.yml 由 `v*` 标签触发，负责出发布包、建 GitHub Release，
+# 并给 firefox 构建做一次 unlisted 签名（自托管安装用）；这里管的是**上架**：
+# listed 是往公开列表页提交新版本，签名后的 xpi 由 AMO 托管，不会返回给我们。
+#
+# `--approval-timeout=0` = 提交完立刻返回，不等人工审核（结果由 AMO 邮件通知）。
+#
+# 注意：同一个版本在 AMO 只能提交一次。重跑同一次推送（版本号没再变）会拿到重复版本的错误，
+# 这时工作流会失败 —— 那是在说"这一版已经交上去了"，不是构建出问题。手动补交见 docs/RELEASING.md。
+
+name: amo-listed
+
+on:
+  push:
+    branches: [main]
+    # 版本号只在 package.json 里；只有它变了才需要看这次推送。
+    paths: ["package.json"]
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 要跟这次推送之前的 package.json 比版本号，所以取全历史。
+          fetch-depth: 0
+
+      - name: 版本号变了吗
+        id: version
+        run: |
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+          previous=$(git show '${{ github.event.before }}:package.json' 2>/dev/null \
+            | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || true)
+          echo "上一版：${previous:-（取不到）}，这一版：$current"
+          if [ "$current" = "$previous" ]; then
+            echo "::notice::package.json 变了但版本号没变（$current），跳过 AMO 提交。"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$current" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.version.outputs.changed == 'true'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.changed == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        if: steps.version.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: 写入签名私钥
+        if: steps.version.outputs.changed == 'true'
+        env:
+          CRX_KEY: ${{ secrets.CRX_KEY }}
+        run: |
+          if [ -z "$CRX_KEY" ]; then
+            echo "::error::缺少仓库 secret CRX_KEY —— pnpm run pack 需要它（见 docs/RELEASING.md）。"
+            exit 1
+          fi
+          printf '%s' "$CRX_KEY" > "$RUNNER_TEMP/crx-key.pem"
+          chmod 600 "$RUNNER_TEMP/crx-key.pem"
+
+      - name: 打包（要 firefox 构建与源码包）
+        if: steps.version.outputs.changed == 'true'
+        env:
+          CRX_KEY_FILE: ${{ runner.temp }}/crx-key.pem
+          CHROME_BIN: google-chrome
+        run: pnpm run pack
+
+      - name: 有没有 AMO 凭据
+        id: amo
+        if: steps.version.outputs.changed == 'true'
+        env:
+          MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+        run: |
+          if [ -z "$MOZILLA_API_KEY" ]; then
+            echo "::notice::未配置 MOZILLA_API_KEY / MOZILLA_API_SECRET，跳过上架（见 docs/RELEASING.md）。"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 提交到 AMO（listed，不等待审核）
+        if: steps.version.outputs.changed == 'true' && steps.amo.outputs.ready == 'true'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          npx --yes web-ext@latest sign \
+            --source-dir .output/firefox-mv3 \
+            --channel=listed \
+            --upload-source-code ".output/xlear-extension-${version}-sources.zip" \
+            --approval-timeout=0 \
+            --no-input
+          echo "::notice::已把 ${version} 提交到 AMO 的 listed 通道，审核结果由 AMO 邮件通知。"

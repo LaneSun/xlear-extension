@@ -83,26 +83,34 @@ WEB_EXT_API_KEY="$MOZILLA_API_KEY" WEB_EXT_API_SECRET="$MOZILLA_API_SECRET" \
 没配置时这一步会打印一条 notice 并跳过（签名是加成，不该挡发布）。同一个版本号
 在 AMO 只能签一次，因此重跑同一次发布的工作流时这一步会失败 —— 所以它设了 allow-failure。
 
-### 二、上架 AMO（listed，按需手动）
+### 二、上架 AMO（listed）
 
-公开列表页由这条路创建/更新，需要审核；签名后的 xpi 由 AMO 托管（不会返回本地文件）：
+公开列表页由这条路创建/更新，需要 AMO 审核；签名后的 xpi 由 AMO 托管（不会返回本地文件）。
 
-```bash
-npx web-ext sign \
-  --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" \
-  --source-dir .output/firefox-mv3 \
-  --channel=listed \
-  --upload-source-code .output/xlear-extension-X.Y.Z-sources.zip \
-  --approval-timeout=0        # 提交后立刻返回，不等审核；签名完成后 AMO 会发邮件
-```
+**已接好自动提交**：`.github/workflows/amo-listed.yml` 在 **main 上版本号变化**时自己跑一遍 ——
+打包 → `web-ext sign --channel=listed --approval-timeout=0`（提交完立刻返回，不等审核，
+结果由 AMO 邮件通知）。它只在 `package.json` 变更时触发，版本号没变就跳过；缺 AMO 凭据时只打一条 notice。
 
 要点：
 - 首次执行会**创建**列表页（ID 用清单里的 `xlear@anlbrain.com`，之后不可改）。
-- 版本号必须**严格递增**；同一个版本不能重复提交。
+- 版本号必须**严格递增**；同一个版本不能重复提交 —— 重跑同一次推送会因此失败，属预期。
 - 我们的构建是打包过的，AMO 会要求源码 —— 所以必须带 `--upload-source-code`（`pnpm run pack` 已经
   产出那个 `-sources.zip`）。
-- 提交前可本地预检：`npx web-ext lint --source-dir .output/firefox-mv3`
-  （当前结果：0 错误 / 3 警告 —— 警告都是打包进去的依赖里的 `innerHTML` 赋值，我们自己的源码没有）。
+
+想手动补交（凭据刚配好、或先在本地跑通一遍）时：
+
+```bash
+pnpm run pack
+WEB_EXT_API_KEY="$MOZILLA_API_KEY" WEB_EXT_API_SECRET="$MOZILLA_API_SECRET" \
+  npx --yes web-ext@latest sign \
+    --source-dir .output/firefox-mv3 \
+    --channel=listed \
+    --upload-source-code .output/xlear-extension-X.Y.Z-sources.zip \
+    --approval-timeout=0
+```
+
+提交前可本地预检：`npx web-ext lint --source-dir .output/firefox-mv3`
+（当前结果：0 错误 / 3 警告 —— 警告都是打包进去的依赖里的 `innerHTML` 赋值，我们自己的源码没有）。
 
 ## crx 的自动更新
 

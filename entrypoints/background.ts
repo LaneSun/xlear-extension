@@ -52,6 +52,7 @@ import {
   matchUsers,
   overlayCounts,
   overlayForList,
+  pruneOverlayCoveredByOnline,
   removeOverlay,
   removeOverlayFromList,
   removeOverlayList,
@@ -196,6 +197,11 @@ async function runSync(
     console.warn("[xlear] 同步失败详情：", ...result.errors);
   }
   await adoptOnlineLocalLists();
+  // 在线条目接管之后，本地覆盖里对应的那些条目退场；不摘的话界面会一直显示"待复核"。
+  const takenOver = await pruneOverlayCoveredByOnline();
+  if (takenOver > 0) {
+    console.info(`[xlear] ${takenOver} 条本地覆盖已由在线条目接管`);
+  }
   await notifyXTabs();
   return {
     lists: result.lists,
