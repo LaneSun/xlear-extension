@@ -19,6 +19,7 @@ import {
   waitFor,
 } from "./executor.ts";
 import { ATTR, postLink, SEL } from "./selectors.ts";
+import { watchPageContext } from "./page-context.ts";
 
 /** 等 X 的更多菜单出现的时间；超过就认为这条走不通。 */
 const BLOCK_MENU_TIMEOUT_MS = 2_500;
@@ -68,6 +69,7 @@ export function installBlockMenuInterceptor(deps: BlockMenuDeps): () => void {
   let pending: PendingTarget | null = null;
   let openedAt = 0;
   let intercepting = false;
+  let active: AbortController | undefined;
   const onClick = (event: MouseEvent) => {
     if (deps.enabled?.() === false) {
       pending = null;
@@ -97,7 +99,10 @@ export function installBlockMenuInterceptor(deps: BlockMenuDeps): () => void {
     pending = null;
     if (!selected) return;
     intercepting = true;
-    void handleInterceptedBlock(selected, deps).catch((error: unknown) => {
+    const controller = new AbortController();
+    active = controller;
+    void handleInterceptedBlock(selected, deps, controller).catch((error: unknown) => {
+      if (controller.signal.aborted) return;
       deps.notify?.(
         selected.userId,
         t("dialog.submitFailed", {
@@ -106,11 +111,15 @@ export function installBlockMenuInterceptor(deps: BlockMenuDeps): () => void {
       );
     }).finally(() => {
       intercepting = false;
+      if (active === controller) active = undefined;
       unsuppressLayers();
     });
   };
   document.addEventListener("click", onClick, true);
-  return () => document.removeEventListener("click", onClick, true);
+  return () => {
+    active?.abort();
+    document.removeEventListener("click", onClick, true);
+  };
 }
 
 /**
@@ -124,21 +133,40 @@ export async function startBlockOnX(article: Element): Promise<string | null> {
   if (isReasonDialogOpen()) return null;
   const caret = article.querySelector<HTMLElement>(SEL.caret);
   if (!caret) return t("card.blockUnavailable");
-  simulateClick(caret);
-  const item = await waitFor(findBlockMenuItem, BLOCK_MENU_TIMEOUT_MS);
-  if (!item) {
-    // 菜单没出来：账号被平台限制、页面改版，或这条帖子已经不在时间线里。
-    await dismissMenu();
-    return t("card.blockUnavailable");
-  }
-  // 只在这一次派发期间置位：`simulateClick` 是同步派发，拦截器在同一次调用里就把标记读走了。
-  passThroughToX = true;
+  const controller = new AbortController();
+  const identity = article.getAttribute(ATTR.identity);
+  const stopPageWatch = watchPageContext(() => controller.abort(), article);
+  const interrupt = () => controller.abort();
+  const inputEvents = ["pointerdown", "keydown", "click"] as const;
+  const stopInputWatch = () =>
+    inputEvents.forEach((name) => document.removeEventListener(name, interrupt, true));
   try {
-    simulateClick(item);
+    simulateClick(caret);
+    // 等待期间用户转去操作别处时，不再代点随后出现的另一份菜单。
+    inputEvents.forEach((name) => document.addEventListener(name, interrupt, true));
+    const item = await waitFor(findBlockMenuItem, BLOCK_MENU_TIMEOUT_MS, 100, controller.signal);
+    stopInputWatch();
+    if (
+      controller.signal.aborted || !article.isConnected ||
+      article.getAttribute(ATTR.identity) !== identity
+    ) return null;
+    if (!item) {
+      // 只处理当前页面的菜单，导航之后不能把新页面的菜单一起关掉。
+      await dismissMenu();
+      return t("card.blockUnavailable");
+    }
+    // 只在这一次派发期间置位，直通 X 的原生确认流程。
+    passThroughToX = true;
+    try {
+      simulateClick(item);
+    } finally {
+      passThroughToX = false;
+    }
+    return null;
   } finally {
-    passThroughToX = false;
+    stopInputWatch();
+    stopPageWatch();
   }
-  return null;
 }
 
 /** 菜单里的「屏蔽」项。静音项不认——按钮的语义就是在 X 上屏蔽。 */
@@ -176,6 +204,7 @@ function readPendingTarget(article: Element): PendingTarget | null {
 async function handleInterceptedBlock(
   pending: PendingTarget,
   deps: BlockMenuDeps,
+  controller: AbortController,
 ): Promise<void> {
   // X 已经在打开它自己的确认弹窗，先藏起来。
   // 一条能用的名单都没有时**不介入**：理由弹窗没有东西可选，插一脚只会挡住 X 自己的屏蔽流程。
@@ -184,76 +213,93 @@ async function handleInterceptedBlock(
   const available = deps.lists().filter((list) => list.id.length > 0);
   if (available.length === 0) return;
 
-  suppressLayers();
-  const dialogPresent = await waitFor(
-    confirmationDialog,
-    2_000,
-  );
-  if (!dialogPresent || deps.enabled?.() === false) {
-    // 没等到 X 的弹窗（例如它是直接屏蔽、无确认），此时不必插入我们的流程。
+  const { signal } = controller;
+  let stopPageWatch = watchPageContext(() => controller.abort());
+  try {
+    suppressLayers();
+    const dialogPresent = await waitFor(
+      confirmationDialog,
+      2_000,
+      100,
+      signal,
+    );
+    if (!dialogPresent || signal.aborted || deps.enabled?.() === false) {
+      // 没等到 X 的弹窗（例如它是直接屏蔽、无确认），此时不必插入我们的流程。
+      unsuppressLayers();
+      return;
+    }
+
+    stopPageWatch();
+    stopPageWatch = watchPageContext(() => controller.abort(), dialogPresent);
+    const history = await Promise.race([
+      deps.history?.().catch(() => undefined),
+      new Promise<undefined>((resolve) =>
+        signal.addEventListener("abort", () => resolve(undefined), { once: true })
+      ),
+    ]);
+    if (signal.aborted || !dialogPresent.isConnected || deps.enabled?.() === false) {
+      unsuppressLayers();
+      return;
+    }
+    const result = await showReasonDialog({
+      signal,
+      history,
+      screenName: pending.screenName,
+      lists: available.map((list) => ({
+        id: list.id,
+        name: list.name,
+        reason: list.reason,
+      })),
+      strings: {
+        title: t("dialog.title", { user: "{user}" }),
+        ariaLabel: t("dialog.ariaLabel"),
+        confirm: t("dialog.confirm"),
+        processing: t("dialog.processing"),
+        cancel: t("common.cancel"),
+        reusePrevious: t("dialog.reusePrevious"),
+        reusePreviousHint: t("dialog.reusePreviousHint", { lists: "{lists}" }),
+      },
+    });
+
+    if (signal.aborted || !dialogPresent.isConnected) return;
+    // 从这里起是用户已完成的选择；正常关闭原生框不再被误认为页面失效。
+    stopPageWatch();
+    if (result.kind === "cancel" || deps.enabled?.() === false) {
+      unsuppressLayers();
+      const cancel = dialogPresent.querySelector(SEL.cancelButton);
+      if (cancel) simulateClick(cancel);
+      else await dismissMenu();
+      return;
+    }
+
+    // 先让 X 的弹窗恢复，再点它的确认按钮，请求由 X 发出。
     unsuppressLayers();
-    return;
+    const confirm = dialogPresent.querySelector<HTMLElement>(SEL.confirmButton);
+    if (
+      !dialogPresent.isConnected || !confirm ||
+      confirm.matches(":disabled, [aria-disabled=true]")
+    ) {
+      deps.notify?.(pending.userId, t("card.blockUnavailable"));
+      return;
+    }
+    simulateClick(confirm);
+    const closed = await waitFor(
+      () => !dialogPresent.isConnected ? true : null,
+      5_000,
+    );
+    if (!closed) {
+      deps.notify?.(pending.userId, t("card.blockUnavailable"));
+      return;
+    }
+    // 本地先生效，再提交平台（平台不会立刻更新列表）。
+    await deps.addOverlay(pending.userId, pending.screenName, result.listIds);
+    const notice = await deps.submit(
+      { userId: pending.userId, screenName: pending.screenName },
+      result.listIds,
+      { id: pending.tweetId, url: pending.tweetUrl },
+    );
+    if (notice) deps.notify?.(pending.userId, notice);
+  } finally {
+    stopPageWatch();
   }
-
-  const history = await deps.history?.().catch(() => undefined);
-  if (deps.enabled?.() === false) {
-    unsuppressLayers();
-    return;
-  }
-  const result = await showReasonDialog({
-    history,
-    screenName: pending.screenName,
-    lists: available.map((list) => ({
-      id: list.id,
-      name: list.name,
-      reason: list.reason,
-    })),
-    strings: {
-      title: t("dialog.title", { user: "{user}" }),
-      ariaLabel: t("dialog.ariaLabel"),
-      confirm: t("dialog.confirm"),
-      processing: t("dialog.processing"),
-      cancel: t("common.cancel"),
-      reusePrevious: t("dialog.reusePrevious"),
-      reusePreviousHint: t("dialog.reusePreviousHint", { lists: "{lists}" }),
-    },
-  });
-
-  if (result.kind === "cancel" || deps.enabled?.() === false) {
-    unsuppressLayers();
-    const cancel = dialogPresent.querySelector(SEL.cancelButton);
-    if (cancel) simulateClick(cancel);
-    else await dismissMenu();
-    return;
-  }
-
-  // 先让 X 的弹窗恢复，再点它的确认按钮，请求由 X 发出。
-  unsuppressLayers();
-  const confirm = dialogPresent.querySelector<HTMLElement>(SEL.confirmButton);
-  if (
-    !dialogPresent.isConnected || !confirm ||
-    confirm.matches(":disabled, [aria-disabled=true]")
-  ) {
-    deps.notify?.(pending.userId, t("card.blockUnavailable"));
-    return;
-  }
-  simulateClick(confirm);
-  const closed = await waitFor(
-    () => !dialogPresent.isConnected ? true : null,
-    5_000,
-  );
-  if (!closed) {
-    deps.notify?.(pending.userId, t("card.blockUnavailable"));
-    return;
-  }
-  await dismissMenu();
-
-  // 本地先生效，再提交平台（平台不会立刻更新列表）。
-  await deps.addOverlay(pending.userId, pending.screenName, result.listIds);
-  const notice = await deps.submit(
-    { userId: pending.userId, screenName: pending.screenName },
-    result.listIds,
-    { id: pending.tweetId, url: pending.tweetUrl },
-  );
-  if (notice) deps.notify?.(pending.userId, notice);
 }

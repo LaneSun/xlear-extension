@@ -92,6 +92,12 @@ docs/screenshots/ README 用的界面截图
 - **节点复用**：X 复用时间线的 `<article>`，判定结果写 `data-xlear-tweet` / `data-xlear-identity`。
 - **弹窗**：理由弹窗在 shadow root 内渲染原生 DOM，样式取 `themeVariables()` 注入的 X 主题变量；
   确认后恢复 X 的弹窗并代点其确认按钮（见硬性规则 3c）。
+- **页面位置**：弹窗与等待中的菜单只属于发起操作的页面、帖子和原生确认框；导航或原生框消失时取消等待，
+  清理锁与 inert，但不恢复旧滚动坐标和旧焦点。相同 URL 的 `replaceState` 只是更新状态，不应取消弹窗。
+  等待菜单时的新点击/按键也会取消旧动作，不能代点另一条帖子的菜单。
+  滚动锁按 `overflow-x/y` 分别保存值和优先级，只还原自己仍持有的样式；原生流程结束后不额外发送全局 Escape。
+  已显示帖文的过滤/展开需要保留首条可见帖文的位置（含部分可见）；新挂载、节点复用、用户滚动及 X/浏览器
+  自行恢复位置时不再补偿，不改 `history.scrollRestoration`。回归入口为 `node scripts/verify-scroll.mjs`。
 - **存储**：配置与密钥在 `storage.local`；过滤库、覆盖、允许列表与举报队列在 IndexedDB。
   备份导出为 JSON（口令加密，PBKDF2 + AES-GCM），也支持 WebDAV 的 `PUT`/`GET`。
 - **界面**：工具栏弹窗宽度不超过视口；注入 X 的弹窗按 VisualViewport 与安全区域定位，列表内部滚动，按钮保持可见。

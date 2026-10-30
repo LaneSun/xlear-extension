@@ -14,6 +14,7 @@
  */
 import { observeTheme, themeVariables } from "./theme.ts";
 import { lockPageScroll } from "../ui/scroll-lock.ts";
+import { watchPageContext } from "./page-context.ts";
 import { type ReasonHistory, recentReasonLists } from "../core/reason-history.ts";
 
 export interface DialogList {
@@ -27,6 +28,7 @@ export type DialogResult =
   | { kind: "cancel" };
 
 export interface DialogOptions {
+  signal?: AbortSignal;
   screenName?: string;
   lists: DialogList[];
   history?: ReasonHistory;
@@ -366,14 +368,15 @@ function openDialog<T>(
     settle: (value: T) => void,
   ) => { backdrop: HTMLElement; focusTarget: HTMLElement | null },
   cancelValue: T,
+  signal?: AbortSignal,
 ): Promise<T> {
-  if (isReasonDialogOpen()) return Promise.resolve(cancelValue);
+  if (isReasonDialogOpen() || signal?.aborted) return Promise.resolve(cancelValue);
   return new Promise<T>((resolve) => {
     const previous = document.activeElement;
     const unlockScroll = lockPageScroll();
     const inert = new Map<Element, boolean>();
     let settled = false;
-    const settle = (value: T) => {
+    const settle = (value: T, restorePosition = true) => {
       if (settled) return;
       settled = true;
       cancelActive = undefined;
@@ -381,12 +384,13 @@ function openDialog<T>(
       window.visualViewport?.removeEventListener("resize", layout);
       window.visualViewport?.removeEventListener("scroll", layout);
       window.removeEventListener("resize", layout);
-      window.removeEventListener("pagehide", cancel);
+      stopPageWatch();
+      signal?.removeEventListener("abort", leavePage);
       stopTheme();
       host.remove();
       for (const [node, old] of inert) node.toggleAttribute("inert", old);
-      unlockScroll();
-      if (previous instanceof HTMLElement && previous.isConnected) {
+      unlockScroll(restorePosition);
+      if (restorePosition && previous instanceof HTMLElement && previous.isConnected) {
         previous.focus({ preventScroll: true });
       }
       resolve(value);
@@ -429,7 +433,7 @@ function openDialog<T>(
     const { backdrop, focusTarget } = build(settle);
     shadow.append(backdrop);
     for (const child of document.body.children) {
-      if (child === host) continue;
+      if (child === host || child.hasAttribute("inert")) continue;
       inert.set(child, child.hasAttribute("inert"));
       child.setAttribute("inert", "");
     }
@@ -442,11 +446,13 @@ function openDialog<T>(
       backdrop.style.height = `${viewport?.height ?? innerHeight}px`;
     };
     const cancel = () => settle(cancelValue);
+    const leavePage = () => settle(cancelValue, false);
+    const stopPageWatch = watchPageContext(leavePage);
+    signal?.addEventListener("abort", leavePage, { once: true });
     cancelActive = cancel;
     window.visualViewport?.addEventListener("resize", layout);
     window.visualViewport?.addEventListener("scroll", layout);
     window.addEventListener("resize", layout);
-    window.addEventListener("pagehide", cancel, { once: true });
     layout();
     focusTarget?.focus({ preventScroll: true });
   });
@@ -459,6 +465,7 @@ export function showReasonDialog(
   return openDialog<DialogResult>(
     (settle) => buildSheet(options, settle),
     { kind: "cancel" },
+    options.signal,
   );
 }
 

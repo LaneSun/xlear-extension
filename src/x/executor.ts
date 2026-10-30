@@ -14,9 +14,11 @@ export async function waitFor<T>(
   probe: () => T | null | undefined,
   timeoutMs = 8_000,
   intervalMs = 100,
+  signal?: AbortSignal,
 ): Promise<T | null> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    if (signal?.aborted) return null;
     const value = probe();
     if (value) return value;
     if (Date.now() > deadline) return null;
@@ -38,9 +40,13 @@ export function simulateClick(element: Element): void {
     clientY: rect.top + rect.height / 2,
     button: 0,
   };
-  element.dispatchEvent(new PointerEvent("pointerdown", { ...options, pointerId: 1, isPrimary: true }));
+  element.dispatchEvent(
+    new PointerEvent("pointerdown", { ...options, pointerId: 1, isPrimary: true }),
+  );
   element.dispatchEvent(new MouseEvent("mousedown", options));
-  element.dispatchEvent(new PointerEvent("pointerup", { ...options, pointerId: 1, isPrimary: true }));
+  element.dispatchEvent(
+    new PointerEvent("pointerup", { ...options, pointerId: 1, isPrimary: true }),
+  );
   element.dispatchEvent(new MouseEvent("mouseup", options));
   element.dispatchEvent(new MouseEvent("click", options));
 }

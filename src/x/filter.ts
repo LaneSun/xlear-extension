@@ -108,10 +108,64 @@ export function installFilter(deps: FilterDeps): FilterHandle {
   let generation = 0;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let anchorFrame = 0;
+  let viewportAnchor: {
+    article: Element;
+    identity: string | null;
+    top: number;
+    x: number;
+    y: number;
+    url: string;
+  } | undefined;
+  const dropAnchor = () => {
+    cancelAnimationFrame(anchorFrame);
+    viewportAnchor = undefined;
+  };
+  // 只补偿本插件造成的高度变化。X 或浏览器已恢复位置、用户已滚动时，交还定位控制。
+  const captureAnchor = (changed: Element) => {
+    // 新挂载或复用的帖子由 X 的路由/虚拟列表负责定位；只锚定已经显示过的帖子变化。
+    if (
+      !changed.hasAttribute(ATTR.decided) || viewportAnchor || stopped || document.hidden ||
+      window.scrollY === 0
+    ) return;
+    const visible = [...document.querySelectorAll(SEL.tweet)].map((article) => ({
+      article,
+      rect: article.getBoundingClientRect(),
+    })).filter(({ rect }) => rect.bottom > 0 && rect.top < innerHeight);
+    // 部分露出的帖子也算当前阅读位置，否则点击「显示」会被滚到展开内容的末尾。
+    const candidate = visible[0];
+    if (!candidate) return;
+    viewportAnchor = {
+      article: candidate.article,
+      identity: candidate.article.getAttribute(ATTR.identity),
+      top: candidate.rect.top,
+      x: scrollX,
+      y: scrollY,
+      url: location.href,
+    };
+    // 留一帧给 X 的 ResizeObserver / 虚拟列表重新测量，再检查它是否已自行校正。
+    anchorFrame = requestAnimationFrame(() => {
+      anchorFrame = requestAnimationFrame(() => {
+        const saved = viewportAnchor;
+        viewportAnchor = undefined;
+        if (
+          !saved || location.href !== saved.url || scrollY !== saved.y || scrollX !== saved.x ||
+          !saved.article.isConnected || saved.article.getAttribute(ATTR.identity) !== saved.identity
+        ) return;
+        const delta = saved.article.getBoundingClientRect().top - saved.top;
+        if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, behavior: "instant" });
+      });
+    });
+  };
+  window.addEventListener("popstate", dropAnchor, true);
+  window.addEventListener("pagehide", dropAnchor, true);
+  window.addEventListener("wheel", dropAnchor, { capture: true, passive: true });
+  window.addEventListener("touchstart", dropAnchor, { capture: true, passive: true });
 
   const release = (article: Element) => {
     const state = hidden.get(article);
     if (state) {
+      if (article.isConnected) captureAnchor(article);
       resize.unobserve(state.card);
       state.overlay.remove();
       for (const [child, old] of state.children) {
@@ -138,6 +192,7 @@ export function installFilter(deps: FilterDeps): FilterHandle {
     const height = `${Math.ceil(state.card.getBoundingClientRect().height)}px`;
     const node = article as HTMLElement;
     if (node.style.getPropertyValue(HEIGHT) !== height) {
+      if (node.style.getPropertyValue(HEIGHT)) captureAnchor(article);
       node.style.setProperty(HEIGHT, height);
     }
     if (state.cell?.getAttribute(CELL_HIDDEN_ATTR)) {
@@ -173,6 +228,7 @@ export function installFilter(deps: FilterDeps): FilterHandle {
       state = undefined;
     }
     if (!state) {
+      captureAnchor(article);
       const overlay = document.createElement("div");
       overlay.setAttribute("data-xlear-overlay", "");
       const card = document.createElement("div");
@@ -187,8 +243,7 @@ export function installFilter(deps: FilterDeps): FilterHandle {
       const error = document.createElement("span");
       error.className = "xlear-error";
       error.setAttribute("role", "status");
-      const current = () =>
-        article.isConnected && hidden.get(article)?.overlay === overlay;
+      const current = () => article.isConnected && hidden.get(article)?.overlay === overlay;
       const button = (label: string, action: () => Promise<void> | void) => {
         const node = document.createElement("button");
         node.type = "button";
@@ -200,9 +255,7 @@ export function installFilter(deps: FilterDeps): FilterHandle {
           node.disabled = true;
           error.textContent = "";
           void Promise.resolve().then(action).catch((reason: unknown) => {
-            error.textContent = reason instanceof Error
-              ? reason.message
-              : String(reason);
+            error.textContent = reason instanceof Error ? reason.message : String(reason);
           }).finally(() => {
             node.disabled = false;
           });
@@ -365,9 +418,7 @@ export function installFilter(deps: FilterDeps): FilterHandle {
   const observer = new MutationObserver((mutations) => {
     const dirty = new Set<Element>();
     for (const mutation of mutations) {
-      const target = mutation.target instanceof Element
-        ? mutation.target
-        : null;
+      const target = mutation.target instanceof Element ? mutation.target : null;
       if (target?.closest("[data-xlear-overlay]")) continue;
       const parent = target?.closest(SEL.tweet);
       if (parent) dirty.add(parent);
@@ -414,12 +465,15 @@ export function installFilter(deps: FilterDeps): FilterHandle {
     },
     matched: () =>
       new Map(
-        [...cache].filter((entry): entry is [string, MatchInfo] =>
-          entry[1] !== null
-        ),
+        [...cache].filter((entry): entry is [string, MatchInfo] => entry[1] !== null),
       ),
     destroy: () => {
       stopped = true;
+      dropAnchor();
+      window.removeEventListener("popstate", dropAnchor, true);
+      window.removeEventListener("pagehide", dropAnchor, true);
+      window.removeEventListener("wheel", dropAnchor, true);
+      window.removeEventListener("touchstart", dropAnchor, true);
       observer.disconnect();
       resize.disconnect();
       clearTimeout(timer);
