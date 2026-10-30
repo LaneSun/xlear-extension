@@ -12,7 +12,11 @@
  * 内容脚本的打包环境里组件框架与页面脚本共用同一套 hooks 状态时容易出现实例不一致，
  * 而这个弹窗只有一点点状态，用原生 DOM 反而更小更稳。
  */
-import { readTheme, themeVariables } from "./theme.ts";
+import { observeTheme, themeVariables } from "./theme.ts";
+import {
+  type ReasonHistory,
+  recentReasonLists,
+} from "../core/reason-history.ts";
 
 export interface DialogList {
   id: string;
@@ -27,6 +31,7 @@ export type DialogResult =
 export interface DialogOptions {
   screenName?: string;
   lists: DialogList[];
+  history?: ReasonHistory;
   /** 已翻译的文案（内容脚本用共享字典解析后传入）。 */
   strings: {
     /** 含 {user} 占位符。 */
@@ -35,6 +40,9 @@ export interface DialogOptions {
     confirm: string;
     processing: string;
     cancel: string;
+    reusePrevious: string;
+    /** 含 {lists} 占位符。 */
+    reusePreviousHint: string;
   };
 }
 
@@ -66,12 +74,16 @@ const DIALOG_CSS = `
     overflow-wrap: anywhere;
     padding: var(--sheet-pad);
     border-radius: 16px;
-    background: var(--xlear-sheet, var(--xlear-bg));
+    background: var(--xlear-bg);
+    color-scheme: var(--xlear-color-scheme);
     color: var(--xlear-text);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
     box-sizing: border-box;
   }
   h1 { flex: none; margin: 0 0 16px; font-size: 20px; line-height: 24px; font-weight: 700; }
+  .heading { flex: none; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .heading h1 { flex: 1; min-width: 0; margin: 0; }
+  .heading .reuse { flex: none; max-width: 45%; padding: 6px 10px; font-size: 13px; }
   /* 列表区：上下各一条贯通整宽的细分隔线（用负外边距抵消 sheet 的内边距），
      列表自身定高 + 内部滚动，滚动条隐藏。 */
   .lists-section {
@@ -175,6 +187,11 @@ function buildSheet(
   outcome: (result: DialogResult) => void,
 ): { backdrop: HTMLElement; focusTarget: HTMLElement | null } {
   const selected = new Set<string>();
+  const { lists, previousIds } = recentReasonLists(
+    options.lists,
+    options.history,
+  );
+  const checkboxes = new Map<string, HTMLInputElement>();
   const strings = options.strings;
   const backdrop = element("div", { class: "backdrop" });
   backdrop.addEventListener("click", () => outcome({ kind: "cancel" }));
@@ -189,11 +206,13 @@ function buildSheet(
   });
   sheet.addEventListener("click", (event) => event.stopPropagation());
 
-  sheet.append(
+  const heading = element("div", { class: "heading" });
+  heading.append(
     element("h1", {
       text: strings.title.replaceAll("{user}", options.screenName ?? "?"),
     }),
   );
+  sheet.append(heading);
 
   const confirmButton = element("button", {
     class: "primary",
@@ -209,8 +228,9 @@ function buildSheet(
   // 调用方保证至少有一条名单：一条都没有时不该抢 X 自己的屏蔽流程（见 blockmenu）。
   const listsSection = element("div", { class: "lists-section" });
   const list = element("ul", { class: "lists" });
-  for (const item of options.lists) {
+  for (const item of lists) {
     const checkbox = element("input", { attrs: { type: "checkbox" } });
+    checkboxes.set(item.id, checkbox);
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) selected.add(item.id);
       else selected.delete(item.id);
@@ -229,6 +249,30 @@ function buildSheet(
   }
   listsSection.append(list);
   sheet.append(listsSection);
+
+  if (previousIds.length > 0) {
+    const names = lists.filter((item) => previousIds.includes(item.id)).map((
+      item,
+    ) => item.name);
+    const hint = strings.reusePreviousHint.replaceAll(
+      "{lists}",
+      names.join(" / "),
+    );
+    const reuse = element("button", {
+      class: "ghost reuse",
+      text: strings.reusePrevious,
+      attrs: { type: "button", title: hint, "aria-label": hint },
+    });
+    reuse.addEventListener("click", () => {
+      selected.clear();
+      for (const [id, checkbox] of checkboxes) {
+        checkbox.checked = previousIds.includes(id);
+        if (checkbox.checked) selected.add(id);
+      }
+      confirmButton.disabled = selected.size === 0;
+    });
+    heading.append(reuse);
+  }
 
   const actions = element("div", { class: "actions" });
   const cancel = element("button", {
@@ -334,6 +378,7 @@ function openDialog<T>(
       window.visualViewport?.removeEventListener("scroll", layout);
       window.removeEventListener("resize", layout);
       window.removeEventListener("pagehide", cancel);
+      stopTheme();
       host.remove();
       for (const [node, old] of inert) node.toggleAttribute("inert", old);
       document.body.style.overflow = overflow;
@@ -366,14 +411,13 @@ function openDialog<T>(
 
     // 挂在 body 而不是 #layers：#layers 在自动执行时会被整体隐藏，
     // 我们的弹窗必须留在隐藏范围之外。
-    const theme = readTheme();
     const host = document.createElement("div");
     host.id = HOST_ID;
     const shadow = host.attachShadow({ mode: "open" });
     const style = element("style");
-    style.textContent = `:host { ${themeVariables(theme)} --xlear-sheet: ${
-      theme.dark ? "#000000" : "#ffffff"
-    }; }${DIALOG_CSS}`;
+    const stopTheme = observeTheme((theme) => {
+      style.textContent = `:host { ${themeVariables(theme)} }${DIALOG_CSS}`;
+    });
     shadow.append(style);
     document.body.append(host);
     document.addEventListener("keydown", onKey, true);

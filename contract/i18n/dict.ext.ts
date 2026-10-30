@@ -59,6 +59,13 @@ export const EXT_DICT: Dict = {
     "В этих списках уже есть такая заявка.",
   ],
   "dialog.processing": ["Working…", "处理中…", "処理中…", "Обработка…"],
+  "dialog.reusePrevious": ["Use last", "上次选择", "前回の選択", "Как раньше"],
+  "dialog.reusePreviousHint": [
+    "Select previous available reasons: {lists}",
+    "选中上次仍可用的理由：{lists}",
+    "前回選んだ利用可能な理由を選択：{lists}",
+    "Выбрать доступные причины из прошлого выбора: {lists}",
+  ],
   "dialog.submitDisabled": [
     "Online submission is off, so this report only applies on this device.",
     "在线提交已关闭，本次举报只在本机生效。",

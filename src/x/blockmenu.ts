@@ -9,6 +9,7 @@
  *    → 同时把这次动作提交到平台，并写入本地覆盖让效果立刻生效。
  */
 import { t } from "../i18n.content.ts";
+import type { ReasonHistory } from "../core/reason-history.ts";
 import { isReasonDialogOpen, showReasonDialog } from "./dialog.ts";
 import {
   dismissMenu,
@@ -28,6 +29,8 @@ export interface BlockMenuDeps {
    * 这里只要弹窗真正用到的三个字段，不必是完整的目录条目。
    */
   lists: () => { id: string; name: string; reason: string }[];
+  /** 每次打开时读取本机记录，让多个标签页共用最近选择。 */
+  history?: () => Promise<ReasonHistory>;
   /** 提交举报；返回给用户看的提示文案。 */
   submit: (
     target: { userId: string; screenName?: string },
@@ -188,6 +191,7 @@ async function handleInterceptedBlock(
   }
 
   const result = await showReasonDialog({
+    history: await deps.history?.().catch(() => undefined),
     screenName: pending.screenName,
     lists: available.map((list) => ({
       id: list.id,
@@ -200,6 +204,8 @@ async function handleInterceptedBlock(
       confirm: t("dialog.confirm"),
       processing: t("dialog.processing"),
       cancel: t("common.cancel"),
+      reusePrevious: t("dialog.reusePrevious"),
+      reusePreviousHint: t("dialog.reusePreviousHint", { lists: "{lists}" }),
     },
   });
 

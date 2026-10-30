@@ -1,5 +1,9 @@
 import { browser } from "wxt/browser";
 import { type ExtensionConfig, normalizeConfig } from "./settings.ts";
+import {
+  normalizeReasonHistory,
+  type ReasonHistory,
+} from "./reason-history.ts";
 
 /** 扩展侧配置的读写与归一化；形状与默认值在 `settings.ts`。 */
 
@@ -36,6 +40,7 @@ export function patchConfig(
 
 /** 运行期状态：同步水位、最近同步结果、今日隐藏的账号集合。 */
 export interface RuntimeState {
+  reasonHistory: ReasonHistory;
   /** 每个列表已应用的版本号与最近同步时间。 */
   listVersions: Record<
     string,
@@ -70,6 +75,7 @@ export async function loadState(): Promise<RuntimeState> {
     ? { day, hiddenAccounts: (raw.counters.hiddenAccounts ?? []).map(String) }
     : { day, hiddenAccounts: [] };
   return {
+    reasonHistory: normalizeReasonHistory(raw.reasonHistory),
     listVersions: raw.listVersions ?? {},
     lastSyncAt: raw.lastSyncAt ?? 0,
     lastSyncError: raw.lastSyncError,

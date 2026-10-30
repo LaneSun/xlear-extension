@@ -20,6 +20,10 @@ import {
   todayKey,
 } from "../src/core/config.ts";
 import type { LocalList } from "../src/core/settings.ts";
+import {
+  normalizeReasonHistory,
+  rememberReasonSelection,
+} from "../src/core/reason-history.ts";
 import type {
   AllowListResponse,
   ConfigResponse,
@@ -438,6 +442,19 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return { ok: true } satisfies { ok: boolean };
     }
     case "submitReport": {
+      // 此消息只在用户确认屏蔽后发出；离线提交也应记住本次选择。
+      const availableIds = new Set([
+        ...config.subscriptions,
+        ...config.localLists.filter((list) => list.enabled).map((list) =>
+          list.id
+        ),
+      ]);
+      await mutateState((state) => ({
+        reasonHistory: rememberReasonSelection(
+          state.reasonHistory,
+          message.listIds.filter((id) => availableIds.has(id)),
+        ),
+      }));
       // 自建列表是用户自己的名单：条目只进本地覆盖、立刻生效，不出设备。
       const localIds = new Set(config.localLists.map((list) => list.id));
       const localTargets = message.listIds.filter((id) => localIds.has(id));
@@ -558,11 +575,15 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         : await pullFromWebdav(config);
       return response;
     }
+    case "reasonHistory": {
+      return { history: (await loadState()).reasonHistory };
+    }
     case "clearAll": {
       await clearAll();
       // 版本水位必须一起清掉，否则重新订阅同一列表时增量同步会从旧版本继续，
       // 导致本地是空的、却以为已经同步过。
       await mutateState(() => ({
+        reasonHistory: normalizeReasonHistory(undefined),
         listVersions: {},
         lastSyncAt: 0,
         lastSyncError: undefined,

@@ -7,6 +7,7 @@
 import { browser } from "wxt/browser";
 import type { ListSummary, ReportSubmitResult } from "../../contract/types.ts";
 import type { ExtensionConfig } from "./settings.ts";
+import type { ReasonHistory } from "./reason-history.ts";
 import type { AllowRecord, OutboxRecord, OverlayRecord } from "./storage.ts";
 
 /* ------------------------------- 内容脚本 ------------------------------- */
@@ -53,6 +54,14 @@ export interface SubmitRequest {
   tweetUrl?: string;
   tweetText?: string;
   listIds: string[];
+}
+
+export interface ReasonHistoryRequest {
+  type: "reasonHistory";
+}
+
+export interface ReasonHistoryResponse {
+  history: ReasonHistory;
 }
 
 export interface SubmitResponse {
@@ -237,6 +246,7 @@ export type ExtensionMessage =
   | DeleteLocalListRequest
   | MatchRequest
   | ListsRequest
+  | ReasonHistoryRequest
   | SubmitRequest
   | AddOverlayRequest
   | AllowRequest
@@ -259,6 +269,7 @@ export type ExtensionMessage =
 export type MessageResponse =
   | MatchResponse
   | ListsResponse
+  | ReasonHistoryResponse
   | LocalListResponse
   | { ok: boolean }
   | SubmitResponse

@@ -23,6 +23,10 @@ before it goes in, and from then on everyone subscribed to that list stops seein
 - **Turns blocking into a report.** When you click Block on X, X's confirmation dialog is replaced by a
   short reason picker built from the lists you subscribe to. Pick one and confirm — X sends the block,
   and the report goes to the platform for review.
+- **Remembers your reasons.** Recently confirmed reasons appear first. Use last selects the previous
+  available reasons with one click; you still confirm the report. This history stays on your device,
+  survives browser restarts and excludes disabled or unsubscribed lists. Cancelling leaves it unchanged.
+  The picker follows X's light, dark and dim backgrounds, including theme changes while it is open.
 - **Stays out of the way.** It works with X's own interface: nothing new to learn, no separate app,
   no fake buttons.
 - **Only hides.** Xlear never blocks, mutes or posts on its own. The block request is always sent by X,
@@ -102,5 +106,9 @@ Run `pnpm run compile`, `pnpm run build` and `pnpm run build:firefox`. Browser r
 profile with the built Chromium extension). They require Playwright and Chromium; set
 `XLEAR_PLAYWRIGHT` to its module path and `XLEAR_CHROMIUM` to the browser executable when they are not
 on the default paths. Both scripts use local test data and mocked service responses.
+
+`scripts/verify-dialog-preferences.mjs` loads the built extension into a fresh profile and checks
+theme changes, recent-reason ordering, quick reuse, cancellation and persistence across browser restarts.
+X pages and service responses are local fixtures; it does not use an X account.
 
 License: UNLICENSE (public domain).

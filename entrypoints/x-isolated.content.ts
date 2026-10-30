@@ -11,6 +11,7 @@ import type {
   ListsResponse,
   LocalListRow,
   MatchResponse,
+  ReasonHistoryResponse,
   SubmitResponse,
 } from "../src/core/messaging.ts";
 import { sendMessage } from "../src/core/messaging.ts";
@@ -100,6 +101,9 @@ export default defineContentScript({
 
     const stopInterceptor = installBlockMenuInterceptor({
       lists: () => availableLists(),
+      history: async () =>
+        (await sendMessage<ReasonHistoryResponse>({ type: "reasonHistory" }))
+          .history,
       submit: async (target, listIds, tweet) => {
         try {
           const response = await sendMessage<SubmitResponse>({
