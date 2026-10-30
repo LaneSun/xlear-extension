@@ -108,7 +108,7 @@ export function Card(
   return (
     <section class="xl-card" style="margin-bottom: 16px;">
       {props.title && (
-        <h2 style="margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+        <h2 style="margin: 0 0 4px; font-size: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
           {props.icon && <Icon icon={props.icon} size={16} class="xl-muted" />}
           {props.title}
           {props.action && (
@@ -137,7 +137,7 @@ export function Row(
   },
 ) {
   return (
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0;">
+    <div class="xl-row">
       <div style="min-width: 0;">
         <div style="font-weight: 600; display: flex; align-items: center; gap: 6px;">
           {props.icon && <Icon icon={props.icon} size={15} class="xl-muted" />}
@@ -149,7 +149,7 @@ export function Row(
           </div>
         )}
       </div>
-      <div style="flex: none; display: flex; align-items: center; gap: 8px;">
+      <div class="xl-row-actions">
         {props.children}
       </div>
     </div>

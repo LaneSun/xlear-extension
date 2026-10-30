@@ -16,17 +16,22 @@ export async function saveConfig(config: ExtensionConfig): Promise<void> {
 }
 
 /** 改配置：合并补丁后过同一套归一化 —— 不变量与默认值只在一处维护。 */
-export async function patchConfig(
+let configQueue: Promise<unknown> = Promise.resolve();
+export function patchConfig(
   patch: Partial<ExtensionConfig>,
 ): Promise<ExtensionConfig> {
-  const current = await loadConfig();
-  const next = normalizeConfig({
-    ...current,
-    ...patch,
-    webdav: { ...current.webdav, ...(patch.webdav ?? {}) },
+  const result = configQueue.then(async () => {
+    const current = await loadConfig();
+    const next = normalizeConfig({
+      ...current,
+      ...patch,
+      webdav: { ...current.webdav, ...(patch.webdav ?? {}) },
+    });
+    await saveConfig(next);
+    return next;
   });
-  await saveConfig(next);
-  return next;
+  configQueue = result.catch(() => {});
+  return result;
 }
 
 /** 运行期状态：同步水位、最近同步结果、今日隐藏的账号集合。 */

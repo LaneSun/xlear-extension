@@ -8,7 +8,12 @@ import { loadConfig, loadState, mutateState, patchConfig } from "./config.ts";
 import type { ExtensionConfig } from "./settings.ts";
 import type { ListSummary } from "../../contract/types.ts";
 import { fetchChanges, fetchLists, fetchSnapshot } from "./api.ts";
-import { applyChanges, countFiltered, replaceListSnapshot } from "./storage.ts";
+import {
+  applyChanges,
+  countFiltered,
+  countListEntries,
+  replaceListSnapshot,
+} from "./storage.ts";
 
 export interface SyncResult {
   /** 处理过的列表数。 */
@@ -18,12 +23,24 @@ export interface SyncResult {
   errors: string[];
 }
 
-export async function syncAll(
+let syncQueue: Promise<unknown> = Promise.resolve();
+
+export function syncAll(
+  config?: ExtensionConfig,
+  options: { force?: boolean; catalog?: ListSummary[] } = {},
+): Promise<SyncResult> {
+  const result = syncQueue.then(() => syncOnce(config, options));
+  syncQueue = result.catch(() => {});
+  return result;
+}
+
+async function syncOnce(
   config?: ExtensionConfig,
   options: { force?: boolean; catalog?: ListSummary[] } = {},
 ): Promise<SyncResult> {
   const current = config ?? await loadConfig();
   const state = await loadState();
+  const updatedVersions: typeof state.listVersions = {};
   const result: SyncResult = { lists: 0, totalEntries: 0, errors: [] };
 
   // 目录先行：它是"哪些列表存在、各自到哪一版"的唯一来源。
@@ -33,7 +50,9 @@ export async function syncAll(
   const stale = current.subscriptions.filter((id) => !known.has(id));
   if (stale.length > 0) {
     // 订阅了目录里没有的列表（被下架或删掉）：静默丢弃，不当作错误 —— 用户没做错任何事。
-    await patchConfig({ subscriptions: current.subscriptions.filter((id) => known.has(id)) });
+    await patchConfig({
+      subscriptions: current.subscriptions.filter((id) => known.has(id)),
+    });
     console.info(`[xlear] 已丢弃目录里不存在的订阅：${stale.join("、")}`);
   }
   const targets = current.subscriptions.filter((id) => known.has(id));
@@ -43,7 +62,10 @@ export async function syncAll(
     const record = state.listVersions[listId];
     const since = options.force ? 0 : record?.version ?? 0;
     // 版本没动就不请求：包管理器式的纪律，一次目录 + 几个真正变了的列表。
-    if (!options.force && record && record.version >= (byId.get(listId)?.version ?? 0)) {
+    if (
+      !options.force && record &&
+      record.version >= (byId.get(listId)?.version ?? 0)
+    ) {
       result.lists++;
       continue;
     }
@@ -59,7 +81,7 @@ export async function syncAll(
           count++;
         });
         await replaceListSnapshot(listId, userIds);
-        state.listVersions[listId] = {
+        updatedVersions[listId] = {
           version: changes.version,
           lastSyncAt: Date.now(),
           entries: count,
@@ -68,43 +90,51 @@ export async function syncAll(
         // 差量可能被服务端分页截断（hasMore）：必须把本轮的差量全部应用完，
         // 才能把水位推进到 `version`——否则客户端会"自认为已同步到最新"而静默漏掉后面的操作。
         let cursor = since;
-        let added = 0;
-        let removed = 0;
         let page = changes;
         for (;;) {
+          if (
+            page.ops.some((op, index) =>
+              !Number.isSafeInteger(op.seq) ||
+              op.seq <= (index === 0 ? cursor : page.ops[index - 1]!.seq) ||
+              op.seq > page.version
+            )
+          ) {
+            throw new Error("服务端差量游标没有前进");
+          }
           if (page.ops.length > 0) {
             await applyChanges(listId, page.ops);
-            added += page.ops.filter((op) => op.op === "add").length;
-            removed += page.ops.filter((op) => op.op === "remove").length;
             cursor = page.ops[page.ops.length - 1]!.seq;
           }
           if (!page.hasMore) {
-            state.listVersions[listId] = {
+            updatedVersions[listId] = {
               version: page.version,
               lastSyncAt: Date.now(),
-              entries: Math.max(0, (record?.entries ?? 0) + added - removed),
+              entries: await countListEntries(listId),
             };
             break;
           }
           if (page.ops.length === 0) {
             // 服务端说"还有更多"却没给任何操作：既不推进水位（下次同步重试），
             // 也不在这里死循环。这种响应本身是异常的，记下来。
-            result.errors.push(`${listId}: 服务端返回 hasMore 但没有差量`);
-            break;
+            throw new Error("服务端返回 hasMore 但没有差量");
           }
           page = await fetchChanges(listId, cursor);
         }
       }
       result.lists++;
     } catch (error) {
-      result.errors.push(`${listId}: ${error instanceof Error ? error.message : String(error)}`);
+      result.errors.push(
+        `${listId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  await mutateState(() => ({
-    listVersions: state.listVersions,
+  await mutateState((latest) => ({
+    listVersions: { ...latest.listVersions, ...updatedVersions },
     lastSyncAt: Date.now(),
-    lastSyncError: result.errors.length > 0 ? result.errors.join("; ") : undefined,
+    lastSyncError: result.errors.length > 0
+      ? result.errors.join("; ")
+      : undefined,
   }));
   result.totalEntries = await countFiltered();
   return result;

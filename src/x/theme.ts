@@ -22,7 +22,17 @@ export interface XTheme {
   mask: string;
 }
 
-const DARK: Pick<XTheme, "background" | "panel" | "text" | "muted" | "border" | "accent" | "danger" | "mask"> = {
+const DARK: Pick<
+  XTheme,
+  | "background"
+  | "panel"
+  | "text"
+  | "muted"
+  | "border"
+  | "accent"
+  | "danger"
+  | "mask"
+> = {
   background: "rgb(0, 0, 0)",
   panel: "rgb(22, 24, 28)",
   text: "rgb(231, 233, 234)",
@@ -45,12 +55,22 @@ const LIGHT: typeof DARK = {
 };
 
 export function readTheme(): XTheme {
-  const meta = document.querySelector('meta[name="theme-color"]')?.getAttribute("content") ?? "";
-  const dark = meta.toLowerCase() === "#000000";
+  const meta = document.querySelector('meta[name="theme-color"]')?.getAttribute(
+    "content",
+  ) ?? "";
+  const color = meta.toLowerCase();
+  const dim = color === "#15202b";
+  const dark = color === "#000000" || color === "#000" || dim ||
+    (!color && matchMedia("(prefers-color-scheme: dark)").matches);
   const palette = dark ? DARK : LIGHT;
   const textSample = document.querySelector('[data-testid="tweetText"]');
   const text = textSample ? getComputedStyle(textSample).color : palette.text;
-  return { dark, ...palette, text };
+  return {
+    dark,
+    ...palette,
+    ...(dim ? { background: "#15202b", panel: "#1e2732" } : {}),
+    text,
+  };
 }
 
 /**

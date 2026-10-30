@@ -9,7 +9,12 @@ import { submitReports } from "./api.ts";
 import { ensureAccount } from "./account.ts";
 import { loadConfig } from "./config.ts";
 import { submissionsAllowed } from "./submission.ts";
-import { deleteReport, enqueueReport, listReportQueue, updateReport } from "./storage.ts";
+import {
+  deleteReport,
+  enqueueReport,
+  listReportQueue,
+  updateReport,
+} from "./storage.ts";
 
 export interface ReportTarget {
   userId: string;
@@ -41,6 +46,14 @@ export async function submitBlockReport(
   listIds: readonly string[],
   tweet: ReportTweet,
 ): Promise<ReportOutcome> {
+  return await queueOutbox(() => enqueueAndSubmit(target, listIds, tweet));
+}
+
+async function enqueueAndSubmit(
+  target: ReportTarget,
+  listIds: readonly string[],
+  tweet: ReportTweet,
+): Promise<ReportOutcome> {
   if (listIds.length === 0) return { results: [], submitted: true };
   // 「在线提交」关闭时既不提交、也不进队列：队列是"待发"的意思，进了就会在重新打开后
   // 自动补发，那不是用户关掉它时的预期。已经躺在队列里的（开关还开着时留下的）不动。
@@ -59,11 +72,28 @@ export async function submitBlockReport(
       attempts: 0,
     });
   }
-  return { results: await flushOutbox(), submitted: true };
+  return {
+    results: (await flushOnce({ userId: target.userId, tweetId: tweet.id }))
+      .filter((result) => listIds.includes(result.listId)),
+    submitted: true,
+  };
 }
 
 /** 冲掉队列里待发的举报。返回逐列表结果；关闭「在线提交」时队列原样留着。 */
-export async function flushOutbox(): Promise<ReportSubmitResult[]> {
+let outboxQueue: Promise<unknown> = Promise.resolve();
+function queueOutbox<T>(operation: () => Promise<T>): Promise<T> {
+  const result = outboxQueue.then(operation);
+  outboxQueue = result.catch(() => {});
+  return result;
+}
+
+export function flushOutbox(): Promise<ReportSubmitResult[]> {
+  return queueOutbox(() => flushOnce());
+}
+
+async function flushOnce(
+  target?: { userId: string; tweetId: string },
+): Promise<ReportSubmitResult[]> {
   const queue = await listReportQueue();
   if (queue.length === 0) return [];
   if (!submissionsAllowed(await loadConfig())) return [];
@@ -82,6 +112,8 @@ export async function flushOutbox(): Promise<ReportSubmitResult[]> {
   for (const records of groups.values()) {
     const first = records[0];
     if (!first) continue;
+    const relevant = !target ||
+      (target.userId === first.userId && target.tweetId === first.tweetId);
     try {
       const response = await submitReports(key, {
         target: { userId: first.userId, screenName: first.screenName },
@@ -93,7 +125,7 @@ export async function flushOutbox(): Promise<ReportSubmitResult[]> {
           capturedAt: new Date(first.createdAt).toISOString(),
         },
       });
-      results.push(...response.results);
+      if (relevant) results.push(...response.results);
       for (const record of records) {
         if (record.id !== undefined) await deleteReport(record.id);
       }
@@ -109,9 +141,15 @@ export async function flushOutbox(): Promise<ReportSubmitResult[]> {
         }
       }
       // 整批没送达（网络故障等）：逐列表记一笔，结果与提交的列表一一对应。
-      // 用 `queued` 而不是 `rejected`：这批举报还在队列里等着重试，界面要如实说明。
+      // 仍能重试时标为 queued，达到上限出队时标为 rejected，不能声称仍在等重试。
       for (const record of records) {
-        results.push({ listId: record.listId, status: "queued", detail: message });
+        if (relevant) {
+          results.push({
+            listId: record.listId,
+            status: record.attempts + 1 >= MAX_ATTEMPTS ? "rejected" : "queued",
+            detail: message,
+          });
+        }
       }
     }
   }
@@ -122,4 +160,3 @@ export async function flushOutbox(): Promise<ReportSubmitResult[]> {
 export async function outboxSize(): Promise<number> {
   return (await listReportQueue()).length;
 }
-

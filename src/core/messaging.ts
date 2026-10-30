@@ -274,8 +274,15 @@ export type MessageResponse =
   | { error: string };
 
 /** 类型安全的请求封装。 */
-export function sendMessage<T extends MessageResponse>(
+export async function sendMessage<T extends MessageResponse>(
   message: ExtensionMessage,
 ): Promise<T> {
-  return browser.runtime.sendMessage(message) as Promise<T>;
+  const response: unknown = await browser.runtime.sendMessage(message);
+  if (
+    response && typeof response === "object" && "error" in response &&
+    typeof response.error === "string"
+  ) {
+    throw new Error(response.error);
+  }
+  return response as T;
 }

@@ -18,7 +18,10 @@ import type {
   WebdavResultResponse,
 } from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
-import type { ExtensionConfig, LocaleSetting } from "../../src/core/settings.ts";
+import type {
+  ExtensionConfig,
+  LocaleSetting,
+} from "../../src/core/settings.ts";
 import type { AllowRecord, OverlayRecord } from "../../src/core/storage.ts";
 import { exportToFile, importFromFile } from "../../src/sync/webdav.ts";
 import {
@@ -73,6 +76,7 @@ const TAB_LABELS: Record<TabId, string> = {
 interface Loaded {
   config: ExtensionConfig;
   lists: ListSummary[];
+  local: LocalListRow[];
   status: StatusResponse;
   overlay: OverlayRecord[];
   allowed: AllowRecord[];
@@ -114,6 +118,7 @@ function Options() {
       config: config.config,
       // 列表可能稍后才到；先用上一次的，避免整页退回加载态。
       lists: previous?.lists ?? [],
+      local: previous?.local ?? [],
       status,
       overlay: overlay.overlay,
       allowed: allowed.allowed,
@@ -125,7 +130,10 @@ function Options() {
     });
     setData((
       previous,
-    ) => (previous ? { ...previous, lists: lists.lists } : previous));
+    ) => (previous
+      ? { ...previous, lists: lists.lists, local: lists.local }
+      : previous)
+    );
   }
 
   useEffect(() => {
@@ -151,7 +159,7 @@ function Options() {
 
   if (!data) {
     return (
-      <div style="max-width: 760px; margin: 0 auto; padding: 24px;">
+      <div style="max-width: 760px; margin: 0 auto; padding: clamp(12px, 4vw, 24px);">
         <h1 style="font-size: 22px;">{t("options.title")}</h1>
         <Spinner />
         {errorNotice && <Banner tone="error">{errorNotice}</Banner>}
@@ -161,15 +169,8 @@ function Options() {
 
   const { config, lists, status, overlay, allowed } = data;
   const subscribed = new Set(config.subscriptions);
-  // 本地列表的行数据：名称与理由来自配置，条目数来自目录里那一条（即本地覆盖的账号数）。
-  const entriesBy = new Map(data.lists.map((row) => [row.id, row.entryCount]));
-  const localRows: LocalListRow[] = data.config.localLists.map((list) => ({
-    id: list.id,
-    name: list.name,
-    reason: list.reason,
-    entries: entriesBy.get(list.id) ?? 0,
-    enabled: list.enabled,
-  }));
+  // 本地条目数由后台的 local 返回；服务器目录里没有本地列表。
+  const localRows = data.local;
 
   const patchConfigValue = (patch: Partial<ExtensionConfig>) =>
     run(async () => {
@@ -274,7 +275,7 @@ function Options() {
   }
 
   return (
-    <div style="max-width: 760px; margin: 0 auto; padding: 24px;">
+    <div style="max-width: 760px; margin: 0 auto; padding: clamp(12px, 4vw, 24px);">
       <header style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
         <Logo size={26} />
         <h1 style="font-size: 22px; margin: 0;">{t("options.title")}</h1>
@@ -295,10 +296,12 @@ function Options() {
 
       {tab === "general" && (
         <>
-          {/*
+          {
+            /*
             在线提交：这个开关决定扩展是"只读"还是"也写"。
             关掉之后仍然同步列表、仍然在本机隐藏，只是什么都不再发上去 —— 所以提示要写清代价。
-          */}
+          */
+          }
           <Card
             title={t("options.online.title")}
             icon={CloudUpload}
@@ -570,6 +573,7 @@ function Options() {
 function Tabs(props: { current: TabId; onSelect: (id: TabId) => void }) {
   return (
     <div
+      class="xl-tabs"
       style="display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px;"
       role="tablist"
     >
@@ -723,7 +727,7 @@ function WebdavSection(
             setWebdav({ url: (event.target as HTMLInputElement).value })}
         />
       </Field>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <div class="xl-form-grid">
         <Field label={t("options.webdav.username")}>
           <input
             class="xl-input"

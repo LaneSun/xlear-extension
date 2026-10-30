@@ -17,7 +17,7 @@ import {
   unsuppressLayers,
   waitFor,
 } from "./executor.ts";
-import { ATTR, SEL } from "./selectors.ts";
+import { ATTR, postLink, SEL } from "./selectors.ts";
 
 /** 等 X 的更多菜单出现的时间；超过就认为这条走不通。 */
 const BLOCK_MENU_TIMEOUT_MS = 2_500;
@@ -32,7 +32,7 @@ export interface BlockMenuDeps {
   submit: (
     target: { userId: string; screenName?: string },
     listIds: string[],
-    tweet: { id: string; url?: string; text?: string },
+    tweet: { id: string; url?: string },
   ) => Promise<string | null>;
   /** 本地覆盖：让这次提交立刻生效。 */
   addOverlay: (
@@ -49,7 +49,6 @@ interface PendingTarget {
   screenName?: string;
   tweetId: string;
   tweetUrl?: string;
-  tweetText?: string;
 }
 
 /**
@@ -61,40 +60,49 @@ interface PendingTarget {
  */
 let passThroughToX = false;
 
-export function installBlockMenuInterceptor(deps: BlockMenuDeps): void {
-  // 记录最近一次点开的帖子，菜单本身不带作者信息，靠它关联。
-  let lastArticle: Element | null = null;
-
-  document.addEventListener("click", (event) => {
+export function installBlockMenuInterceptor(deps: BlockMenuDeps): () => void {
+  let pending: PendingTarget | null = null;
+  let openedAt = 0;
+  let intercepting = false;
+  const onClick = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
     const caret = target.closest(SEL.caret);
     if (caret) {
-      lastArticle = caret.closest(SEL.tweet);
+      const article = caret.closest(SEL.tweet);
+      pending = article ? readPendingTarget(article) : null;
+      openedAt = Date.now();
       return;
     }
-
-    // 菜单项：屏蔽有 testid，静音靠图标匹配。
-    const menuItem = target.closest(SEL.menuItem);
-    if (!menuItem) return;
-    const isBlock = menuItem.matches(SEL.blockItem) ||
-      menuItem.querySelector(SEL.blockItem) !== null;
-    const isMute = !isBlock &&
-      menuItem.querySelector("svg path")?.getAttribute("d")?.startsWith(
-          "M16 22h-2.35",
-        ) === true;
-    if (!isBlock && !isMute) return;
-
-    // 卡片按钮发起的原生屏蔽：交给 X 自己走它的确认弹窗，我们不插手。
-    if (passThroughToX) return;
-
-    const article = lastArticle ?? findArticleFromMenu(menuItem);
-    if (!article) return;
-    const pending = readPendingTarget(article);
-    if (!pending) return;
-    if (isReasonDialogOpen()) return;
-    void handleInterceptedBlock(pending, deps);
-  }, true);
+    // 移动端底部菜单可能只有 role=button；屏蔽的 testid 跨布局稳定。
+    const item = target.closest(SEL.blockItem) ?? target.closest(SEL.menuItem);
+    if (
+      !item ||
+      !(item.matches(SEL.blockItem) || item.querySelector(SEL.blockItem))
+    ) {
+      // 离开当前菜单后不再沿用旧目标，避免随后在别处屏蔽时误报上一条帖子。
+      pending = null;
+      return;
+    }
+    if (passThroughToX || intercepting || isReasonDialogOpen()) return;
+    const selected = Date.now() - openedAt < 30_000 ? pending : null;
+    pending = null;
+    if (!selected) return;
+    intercepting = true;
+    void handleInterceptedBlock(selected, deps).catch((error: unknown) => {
+      deps.notify?.(
+        selected.userId,
+        t("dialog.submitFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }).finally(() => {
+      intercepting = false;
+      unsuppressLayers();
+    });
+  };
+  document.addEventListener("click", onClick, true);
+  return () => document.removeEventListener("click", onClick, true);
 }
 
 /**
@@ -127,43 +135,33 @@ export async function startBlockOnX(article: Element): Promise<string | null> {
 
 /** 菜单里的「屏蔽」项。静音项不认——按钮的语义就是在 X 上屏蔽。 */
 function findBlockMenuItem(): HTMLElement | null {
-  for (const item of document.querySelectorAll<HTMLElement>(SEL.menuItem)) {
-    if (!item.closest(SEL.menu)) continue;
-    if (item.matches(SEL.blockItem) || item.querySelector(SEL.blockItem)) {
-      return item;
-    }
-  }
-  return null;
+  // 不要求 role=menu，移动 X 使用底部操作面板。
+  return [...document.querySelectorAll<HTMLElement>(SEL.blockItem)]
+    .find((item) => item.getClientRects().length > 0) ?? null;
 }
 
-/** 菜单是从 `#layers` 渲染的，取不到关联帖子时用属性反查。 */
-function findArticleFromMenu(menuItem: Element): Element | null {
-  const layers = menuItem.closest(SEL.layers);
-  if (!layers) return null;
-  // 菜单里通常带一个指向该用户的链接，用它反查帖子。
-  const link = layers.querySelector('a[href^="/"]:not([href^="/i/"])');
-  const handle = link?.getAttribute("href")?.split("/")[1];
-  if (!handle) return null;
-  return document.querySelector(
-    `${SEL.tweet}[${ATTR.name}="${CSS.escape(handle)}"]`,
-  );
+function confirmationDialog(): Element | null {
+  const button = document.querySelector(SEL.confirmButton);
+  return button?.closest(
+    `${SEL.dialog}, [role="dialog"], [role="alertdialog"]`,
+  ) ?? null;
 }
 
 function readPendingTarget(article: Element): PendingTarget | null {
   const userId = article.getAttribute(ATTR.user);
   if (!userId) return null;
   const screenName = article.getAttribute(ATTR.name) ?? undefined;
-  const link = article.querySelector<HTMLAnchorElement>('a[href*="/status/"]');
+  const link = postLink(article);
   const href = link?.getAttribute("href") ?? undefined;
-  const tweetId = href?.match(/\/status\/(\d+)/)?.[1];
+  const tweetId = article.getAttribute(ATTR.tweet) ??
+    href?.match(/\/status\/(\d+)/)?.[1];
   if (!tweetId) return null;
-  const text = article.querySelector(SEL.tweetText)?.textContent ?? undefined;
+
   return {
     userId,
     screenName,
     tweetId,
     tweetUrl: href ? new URL(href, location.origin).toString() : undefined,
-    tweetText: text,
   };
 }
 
@@ -180,7 +178,7 @@ async function handleInterceptedBlock(
 
   suppressLayers();
   const dialogPresent = await waitFor(
-    () => document.querySelector(SEL.dialog),
+    confirmationDialog,
     2_000,
   );
   if (!dialogPresent) {
@@ -207,7 +205,7 @@ async function handleInterceptedBlock(
 
   if (result.kind === "cancel") {
     unsuppressLayers();
-    const cancel = document.querySelector(SEL.cancelButton);
+    const cancel = dialogPresent.querySelector(SEL.cancelButton);
     if (cancel) simulateClick(cancel);
     else await dismissMenu();
     return;
@@ -215,12 +213,23 @@ async function handleInterceptedBlock(
 
   // 先让 X 的弹窗恢复，再点它的确认按钮，请求由 X 发出。
   unsuppressLayers();
-  const confirm = document.querySelector<HTMLElement>(SEL.confirmButton);
-  if (confirm) simulateClick(confirm);
-  await waitFor(
-    () => (document.querySelector(SEL.dialog) ? null : true),
+  const confirm = dialogPresent.querySelector<HTMLElement>(SEL.confirmButton);
+  if (
+    !dialogPresent.isConnected || !confirm ||
+    confirm.matches(":disabled, [aria-disabled=true]")
+  ) {
+    deps.notify?.(pending.userId, t("card.blockUnavailable"));
+    return;
+  }
+  simulateClick(confirm);
+  const closed = await waitFor(
+    () => !dialogPresent.isConnected ? true : null,
     5_000,
   );
+  if (!closed) {
+    deps.notify?.(pending.userId, t("card.blockUnavailable"));
+    return;
+  }
   await dismissMenu();
 
   // 本地先生效，再提交平台（平台不会立刻更新列表）。
@@ -228,7 +237,7 @@ async function handleInterceptedBlock(
   const notice = await deps.submit(
     { userId: pending.userId, screenName: pending.screenName },
     result.listIds,
-    { id: pending.tweetId, url: pending.tweetUrl, text: pending.tweetText },
+    { id: pending.tweetId, url: pending.tweetUrl },
   );
   if (notice) deps.notify?.(pending.userId, notice);
 }

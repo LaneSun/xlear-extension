@@ -9,7 +9,8 @@
 
 export const SEL = {
   /** 帖子容器。 */
-  tweet: 'article[data-testid="tweet"]',
+  tweet:
+    ':is([data-testid="tweet"], article:not([data-testid="tweet"] article))',
   /** 虚拟列表单元，隐藏时最小影响范围。 */
   cell: '[data-testid="cellInnerDiv"]',
   /** 更多菜单按钮。 */
@@ -50,3 +51,32 @@ export const ATTR = {
 export function cellOf(tweet: Element): HTMLElement | null {
   return tweet.closest<HTMLElement>(SEL.cell);
 }
+
+/** 时间戳链接属于当前帖子；不要把引用帖或正文中的状态链接当成举报对象。 */
+export function postLink(tweet: Element): HTMLAnchorElement | null {
+  const links = [
+    ...tweet.querySelectorAll<HTMLAnchorElement>('a[href*="/status/"]'),
+  ]
+    .filter((link) => link.closest(SEL.tweet) === tweet);
+  const id = tweet.getAttribute(ATTR.tweet);
+  return links.find((link) =>
+    link.querySelector("time") &&
+    (!id || link.getAttribute("href")?.match(/\/status\/(\d+)/)?.[1] === id)
+  ) ??
+    (id
+      ? links.find((link) =>
+        link.getAttribute("href")?.match(/\/status\/(\d+)/)?.[1] === id
+      )
+      : null) ??
+    null;
+}
+
+/** 两个内容脚本、权限与刷新消息共用，兼容旧移动域名的跳转前页面。 */
+export const X_MATCHES = [
+  "https://x.com/*",
+  "https://mobile.x.com/*",
+  "https://m.x.com/*",
+  "https://twitter.com/*",
+  "https://mobile.twitter.com/*",
+  "https://m.twitter.com/*",
+];

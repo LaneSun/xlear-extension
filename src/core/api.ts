@@ -4,8 +4,8 @@ import type {
   AccountMeResponse,
   ChangesResponse,
   ListsResponse,
-  ReportSubmission,
   ReportsResponse,
+  ReportSubmission,
   SnapshotLine,
 } from "../../contract/types.ts";
 import { API } from "../../contract/constants.ts";
@@ -13,6 +13,7 @@ import { SERVER_URL } from "./server.ts";
 import { loadConfig } from "./config.ts";
 import { SubmissionDisabledError, submissionsAllowed } from "./submission.ts";
 import { t } from "../i18n.ts";
+import { readSnapshotPages } from "./snapshot.ts";
 import { localeSignal } from "./locale.ts";
 
 export class ApiError extends Error {
@@ -58,8 +59,13 @@ async function request<T>(
     );
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({})) as { error?: string };
-    throw new ApiError(payload.error ?? `HTTP ${response.status}`, response.status);
+    const payload = await response.json().catch(() => ({})) as {
+      error?: string;
+    };
+    throw new ApiError(
+      payload.error ?? `HTTP ${response.status}`,
+      response.status,
+    );
   }
   return await response.json() as T;
 }
@@ -95,35 +101,28 @@ export async function fetchSnapshot(
   listId: string,
   onRecord: (line: SnapshotLine) => void,
 ): Promise<number> {
-  let cursor: string | null = null;
-  let total = 0;
-  do {
-    const query = new URLSearchParams({ cursor: cursor ?? "" });
-    const response = await fetch(`${BASE}${API.listSnapshot(listId)}?${query}`, {
-      // 同上：不带网站 cookie，语言只按扩展自己的设置。
-      credentials: "omit",
-      headers: {
-        accept: "application/x-ndjson",
-        "accept-language": `${localeSignal.value}, en;q=0.8`,
+  return await readSnapshotPages(listId, async (cursor) => {
+    const query = new URLSearchParams();
+    if (cursor !== null) query.set("cursor", cursor);
+    const response = await fetch(
+      `${BASE}${API.listSnapshot(listId)}?${query}`,
+      {
+        credentials: "omit",
+        headers: {
+          accept: "application/x-ndjson",
+          "accept-language": `${localeSignal.value}, en;q=0.8`,
+        },
+        signal: AbortSignal.timeout(120_000),
       },
-      signal: AbortSignal.timeout(120_000),
-    });
+    );
     if (!response.ok) {
-      throw new ApiError(t("ext.api.snapshotFailed", { status: response.status }), response.status);
+      throw new ApiError(
+        t("ext.api.snapshotFailed", { status: response.status }),
+        response.status,
+      );
     }
-    const text = await response.text();
-    for (const line of text.split("\n")) {
-      if (line.trim().length === 0) continue;
-      const parsed = JSON.parse(line) as SnapshotLine & { done?: boolean; nextCursor?: string | null };
-      if (parsed.done) {
-        cursor = parsed.nextCursor ?? null;
-        break;
-      }
-      onRecord(parsed);
-      total++;
-    }
-  } while (cursor);
-  return total;
+    return response;
+  }, onRecord);
 }
 
 /** 按需申请账号。仅在用户第一次提交举报时调用。 */
@@ -141,7 +140,10 @@ export function fetchMe(key: string): Promise<AccountMeResponse> {
 export function submitCandidate(
   payload: { id: string; name: string; reason: string; locale?: string },
 ): Promise<unknown> {
-  return write(API.candidates, { method: "POST", body: JSON.stringify(payload) });
+  return write(API.candidates, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function submitReports(

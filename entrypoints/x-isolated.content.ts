@@ -21,12 +21,13 @@ import {
 } from "../src/x/blockmenu.ts";
 import { type DialogList, dialogLists } from "../src/x/dialoglists.ts";
 import { installFilter } from "../src/x/filter.ts";
-import { ATTR, SEL } from "../src/x/selectors.ts";
+import { showNotice } from "../src/x/notice.ts";
+import { ATTR, SEL, X_MATCHES } from "../src/x/selectors.ts";
 
 export default defineContentScript({
-  matches: ["https://x.com/*", "https://twitter.com/*"],
+  matches: X_MATCHES,
   runAt: "document_start",
-  main() {
+  main(ctx) {
     let listsCache: ListSummary[] = [];
     let localCache: LocalListRow[] = [];
     let subscribedIds: string[] = [];
@@ -49,8 +50,23 @@ export default defineContentScript({
         subscribed: subscribedIds,
       });
 
+    const refreshLists = async () => {
+      try {
+        const response = await sendMessage<ListsResponse>({ type: "lists" });
+        // 先确定语言和名单名称，再允许首批卡片渲染，避免混用语言或显示列表 ID。
+        applyLocale(response.locale);
+        listsCache = response.lists;
+        localCache = response.local ?? [];
+        subscribedIds = response.subscriptions;
+      } catch {
+        // 后台尚未就绪时会失败，稍后重试即可。
+      }
+    };
+    const initialLists = refreshLists();
+
     const filter = installFilter({
       match: async (userIds) => {
+        await initialLists;
         const response = await sendMessage<MatchResponse>({
           type: "match",
           userIds,
@@ -63,7 +79,9 @@ export default defineContentScript({
         await sendMessage({ type: "allow", userId, screenName });
       },
       countHidden: (userIds) => {
-        void sendMessage({ type: "countHidden", userIds: [...userIds] });
+        void sendMessage({ type: "countHidden", userIds: [...userIds] }).catch(
+          () => {},
+        );
       },
       listName: (listId) => listNames().get(listId) ?? listId,
       blockOnX: (article) => startBlockOnX(article),
@@ -80,7 +98,7 @@ export default defineContentScript({
       }),
     });
 
-    installBlockMenuInterceptor({
+    const stopInterceptor = installBlockMenuInterceptor({
       lists: () => availableLists(),
       submit: async (target, listIds, tweet) => {
         try {
@@ -90,7 +108,6 @@ export default defineContentScript({
             screenName: target.screenName,
             tweetId: tweet.id,
             tweetUrl: tweet.url,
-            tweetText: tweet.text,
             listIds,
           });
           if (response.error) {
@@ -128,44 +145,41 @@ export default defineContentScript({
       addOverlay: async (userId, screenName, listIds) => {
         await sendMessage({ type: "addOverlay", userId, screenName, listIds });
       },
-      // 界面不再显示失败提示，只留在控制台供排查。
-      notify: (_userId, message) => {
-        console.info("[xlear]", message);
-      },
+      notify: (_userId, message) => showNotice(message),
     });
 
-    const refreshLists = async () => {
-      try {
-        const response = await sendMessage<ListsResponse>({ type: "lists" });
-        // 列表名与理由已经按这个语言返回，界面语言必须跟着走，
-        // 否则会出现"列表名是俄语、按钮是中文"的混搭。
-        applyLocale(response.locale);
-        listsCache = response.lists;
-        localCache = response.local ?? [];
-        subscribedIds = response.subscriptions;
-      } catch {
-        // 后台尚未就绪时会失败，稍后重试即可。
-      }
-    };
-
-    void refreshLists();
-    setInterval(() => void refreshLists(), 5 * 60_000);
-
-    browser.runtime.onMessage.addListener(
-      (message: unknown, _sender, sendResponse) => {
-        const type = (message as { type?: string } | null)?.type;
-        // 后台在订阅、语言、本地覆盖或同步结果变化时都会发这一条，统一重算即可。
-        if (type === "refresh") {
-          void refreshLists().then(() => filter.refresh());
-          return undefined;
-        }
-        if (type === "xlearDiagnose") {
-          sendResponse(runDiagnostics());
-          return true;
-        }
-        return undefined;
-      },
+    void initialLists.then(() => filter.refresh());
+    const listTimer = setInterval(
+      () => void refreshLists().then(() => filter.refresh()),
+      5 * 60_000,
     );
+
+    const onMessage: Parameters<
+      typeof browser.runtime.onMessage.addListener
+    >[0] = (
+      message,
+      _sender,
+      sendResponse,
+    ) => {
+      const type = (message as { type?: string } | null)?.type;
+      // 后台在订阅、语言、本地覆盖或同步结果变化时都会发这一条，统一重算即可。
+      if (type === "refresh") {
+        void refreshLists().then(() => filter.refresh());
+        return undefined;
+      }
+      if (type === "xlearDiagnose") {
+        sendResponse(runDiagnostics());
+        return true;
+      }
+      return undefined;
+    };
+    browser.runtime.onMessage.addListener(onMessage);
+    ctx.onInvalidated(() => {
+      clearInterval(listTimer);
+      filter.destroy();
+      stopInterceptor();
+      browser.runtime.onMessage.removeListener(onMessage);
+    });
 
     /**
      * 选择器自检：X 改版后第一时间能在选项页看到哪一项失效了。
@@ -182,7 +196,7 @@ export default defineContentScript({
         url: location.href,
         checks: [
           {
-            name: "帖子容器 article[tweet]",
+            name: "帖子容器 article / tweet",
             ok: tweetCount > 0,
             detail: `找到 ${tweetCount} 条`,
           },

@@ -1,3 +1,4 @@
+import { X_MATCHES } from "../src/x/selectors.ts";
 /**
  * 后台（service worker / event page）。
  *
@@ -154,7 +155,7 @@ async function applySyncAlarm(hasSubscriptions: boolean): Promise<void> {
 async function notifyXTabs(): Promise<void> {
   try {
     const tabs = await browser.tabs.query({
-      url: ["https://x.com/*", "https://twitter.com/*"],
+      url: X_MATCHES,
     });
     for (const tab of tabs) {
       if (tab.id === undefined) continue;
@@ -278,7 +279,7 @@ async function buildStatus(): Promise<StatusResponse> {
 async function diagnose(): Promise<DiagnoseResponse> {
   try {
     const tabs = await browser.tabs.query({
-      url: ["https://x.com/*", "https://twitter.com/*"],
+      url: X_MATCHES,
     });
     const tab = tabs.find((candidate) => candidate.id !== undefined);
     if (!tab || tab.id === undefined) {
@@ -328,13 +329,14 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case "match": {
       // 总开关在后台生效：关掉时一律返回"没有命中"，内容脚本据此不隐藏任何帖子。
       // 停用的本地列表同样不参与判定：条目还在，只是现在不算数。
-      const disabled = new Set(
-        config.localLists.filter((list) => !list.enabled).map((list) =>
+      const active = new Set([
+        ...config.subscriptions,
+        ...config.localLists.filter((list) => list.enabled).map((list) =>
           list.id
         ),
-      );
+      ]);
       const matches = config.enabled
-        ? await matchUsers(message.userIds, disabled)
+        ? await matchUsers(message.userIds, active)
         : new Map();
       const response: MatchResponse = {
         matches: [...matches.entries()].map(([userId, info]) => ({
@@ -467,7 +469,10 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         );
         results.push(...outcome.results);
         // 关掉「在线提交」时这里什么都没发，如实带回界面（本地列表那部分照常只落本机）。
-        return { results, submitted: outcome.submitted } satisfies SubmitResponse;
+        return {
+          results,
+          submitted: outcome.submitted,
+        } satisfies SubmitResponse;
       }
       return { results, submitted: true } satisfies SubmitResponse;
     }

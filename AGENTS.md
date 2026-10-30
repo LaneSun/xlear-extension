@@ -94,7 +94,7 @@ docs/screenshots/ README 用的界面截图
   确认后恢复 X 的弹窗并代点其确认按钮（见硬性规则 3c）。
 - **存储**：配置与密钥在 `storage.local`；过滤库、覆盖、允许列表与举报队列在 IndexedDB。
   备份导出为 JSON（口令加密，PBKDF2 + AES-GCM），也支持 WebDAV 的 `PUT`/`GET`。
-- **界面**：弹窗 `min-width: 300px / max-width: 460px`；注入 X 的弹窗 `width: min(320px, calc(100vw - 32px))`。
+- **界面**：工具栏弹窗宽度不超过视口；注入 X 的弹窗按 VisualViewport 与安全区域定位，列表内部滚动，按钮保持可见。
 - **两个名单概念，别混**：服务器列表（`config.subscriptions` 表示勾选，条目在 IndexedDB `filtered`，靠同步拉取）
   与本地列表（`config.localLists`，条目在 `overlay`，只在本机生效，名称与理由交给平台留档）。
   两者的"勾选"含义相同 —— **算不算数**：本地列表的 `enabled` 为假就不再参与匹配、也不出现在屏蔽理由弹窗里，
@@ -145,4 +145,5 @@ docs/screenshots/ README 用的界面截图
 - 0.5.0 的内容：在线提交开关、本地屏蔽被在线列表接管后退场；上架 AMO 由 `amo-listed` 工作流自动提交。
 - crx 自动更新（`updates.xml`）自 v0.4.0 起并入 main；自托管用的 unlisted 签名已注释掉
   （各版本走 listed，两个通道对同一版本号只能提交一次，见「发版」）。
-- 隐藏状态挂在**格子**上（`data-xlear-cell-hidden`，值是账号 ID），不只挂在 `article` 上：X 会反复重建格子内容（广告位实测每 ~83ms 一次），而格子元素本身是复用的，CSS 用 `[data-xlear-cell-hidden] article` 压缩高度即可让新内容自动落进同一条规则。**不要用 `display:none`** —— 把元素从布局里抽走会让 X 的虚拟化更频繁地重建，反而更闪。高度过渡只在格子**首次**被标记时播放（重建出来的节点直接落位，否则每次新建都会重播动画，看上去一直在呼吸）。
+- 隐藏状态以帖子为单位；独占格子额外保留 `data-xlear-cell-hidden` 与卡片高度，保证重建时不会突然撑开。同格有多个作者时不能整格隐藏；新版移动页没有格子，直接在帖子上压缩。**不要用 `display:none`** —— 原节点留在布局中；原始子树设为透明与 inert，避免带 z-index 的头像或媒体穿透遮罩，恢复时保留原有 aria/inert 状态。高度由 ResizeObserver 测量，不播放反复重建的过渡动画。
+- 移动 X 可能是无 testid 的 article，React props 只有 Relay fragment 引用；本帖实体在有限 hook 链的 `snapshot.data`。只读当前 fiber，不访问 Relay store 或网络响应。`data-href` / 帖子链接用于排除复用节点的旧身份。

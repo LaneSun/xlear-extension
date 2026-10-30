@@ -1,109 +1,142 @@
-/**
- * 页面环境的扫描器（MAIN world，**纯只读**）。
- *
- * 唯一的职责：从 React fiber 里读出每个帖子对应的账号，把作者 ID / 用户名写到 DOM 属性上。
- * 两个世界共享 DOM，属性是最省事的对齐方式；过滤引擎据此匹配本地过滤库。
- *
- * 为什么不解析 GraphQL 响应：渲染出的帖子 fiber 已经包含所需字段，
- * 覆盖面相同且不依赖随时会变的响应结构。这里不读也不改 X 的任何请求。
- */
-import { ATTR } from "./selectors.ts";
+/** MAIN world 只读扫描器：从 React fiber 读取身份，通过 DOM 属性交给过滤引擎。 */
+import { ATTR, SEL } from "./selectors.ts";
+import { type TweetIdentity, tweetIdentity } from "./identity.ts";
 
 interface ReactFiber {
-  memoizedProps?: unknown;
+  memoizedProps?: { tweet?: unknown; tweetResult?: unknown };
   return?: ReactFiber | null;
+  alternate?: ReactFiber | null;
+  memoizedState?: ReactHook | null;
 }
 
-interface TweetUser {
-  id_str?: string;
-  rest_id?: string;
-  screen_name?: string;
-  core?: { screen_name?: string };
+interface ReactHook {
+  memoizedState?: { snapshot?: { data?: unknown } };
+  next?: ReactHook | null;
 }
 
-interface TweetLike {
-  rest_id?: string;
-  id_str?: string;
-  legacy?: { id_str?: string };
-  user?: TweetUser;
-}
-
-const MAX_FIBER_DEPTH = 40;
-
-function fiberOf(element: Element): ReactFiber | null {
-  const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+export function readTweetIdentity(element: Element): TweetIdentity | null {
+  const key = Object.keys(element).find((name) =>
+    name.startsWith("__reactFiber$")
+  );
   if (!key) return null;
-  const fiber = (element as unknown as Record<string, ReactFiber | undefined>)[key];
-  return fiber ?? null;
-}
-
-/** 沿 fiber 向上找承载 tweet 属性的那一层。 */
-function findTweet(element: Element): TweetLike | null {
-  let node = fiberOf(element);
-  for (let depth = 0; node && depth < MAX_FIBER_DEPTH; depth++) {
-    const props = node.memoizedProps;
-    if (props && typeof props === "object" && "tweet" in props) {
-      const tweet = (props as { tweet?: unknown }).tweet;
-      if (tweet && typeof tweet === "object" && (tweet as TweetLike).user) {
-        return tweet as TweetLike;
+  let fiber = (element as unknown as Record<string, ReactFiber>)[key];
+  // React 可能保留上一轮 fiber；用本帖的时间戳链接筛掉旧身份及引用帖。
+  const permalink = [
+    ...element.querySelectorAll<HTMLAnchorElement>('a[href*="/status/"]'),
+  ]
+    .find((link) =>
+      link.querySelector("time") && link.closest(SEL.tweet) === element
+    );
+  const wrapper = element.closest('[data-href*="/status/"]');
+  const href = wrapper?.getAttribute("data-href") ??
+    element.getAttribute("itemid") ??
+    permalink?.getAttribute("href");
+  const domId = href?.match(/\/status\/(\d+)/)?.[1];
+  for (
+    let depth = 0;
+    fiber && depth < 40;
+    depth++, fiber = fiber.return ?? undefined
+  ) {
+    for (const node of [fiber, fiber.alternate]) {
+      const props = node?.memoizedProps;
+      const found = tweetIdentity(props?.tweet) ??
+        tweetIdentity(props?.tweetResult);
+      if (found && (!domId || domId === found.tweetId)) return found;
+      // 新版移动 X 用 Relay：props 只带 fragment 引用，已解析的本帖在 hook 的 snapshot.data。
+      // 只检查当前 fiber 的有限 hook 链，不访问 Relay store、不读取网络响应或查询标识。
+      if (
+        props &&
+        ("tweet" in props || "tweetResults" in props || "tweetResult" in props)
+      ) {
+        let hook = node?.memoizedState;
+        for (let index = 0; hook && index < 20; index++, hook = hook.next) {
+          const resolved = tweetIdentity(hook.memoizedState?.snapshot?.data);
+          if (resolved && (!domId || domId === resolved.tweetId)) {
+            return resolved;
+          }
+        }
       }
     }
-    node = node.return ?? null;
   }
   return null;
 }
 
-/**
- * 给帖子打标记。认不出作者时也要标记：过滤引擎的规则是"未标记的帖子先挡住"，
- * 漏标记会让整条时间线一直空白。
- */
-function mark(element: Element): void {
-  const tweet = findTweet(element);
-  const user = tweet?.user;
-  const userId = user?.id_str ?? user?.rest_id;
-  const screenName = user?.screen_name ?? user?.core?.screen_name;
-  const tweetId = tweet?.rest_id ?? tweet?.id_str ?? tweet?.legacy?.id_str;
-
-  // 虚拟列表会把同一个 <article> 交给下一条帖子，DOM 属性会原地留着。
-  // 身份变了就必须清掉上一条的判定结果，否则新帖子会"继承"上一条的
-  // 「已判定/已隐藏」状态，在重新扫描前会短暂露出来。
-  const identity = `${tweetId ?? ""}|${userId ?? ""}|${screenName ?? ""}`;
-  if (element.getAttribute(ATTR.identity) !== identity) {
-    element.setAttribute(ATTR.identity, identity);
-    element.removeAttribute(ATTR.decided);
-    element.removeAttribute(ATTR.filtered);
-    element.removeAttribute("data-xlear-shown");
+function setAttribute(element: Element, key: string, value?: string): void {
+  if (value === undefined) {
+    if (element.hasAttribute(key)) element.removeAttribute(key);
+  } else if (element.getAttribute(key) !== value) {
+    element.setAttribute(key, value);
   }
-
-  if (tweetId) element.setAttribute(ATTR.tweet, String(tweetId));
-  if (userId) element.setAttribute(ATTR.user, String(userId));
-  if (screenName) element.setAttribute(ATTR.name, String(screenName));
-  element.setAttribute(ATTR.checked, "1");
 }
 
-export function installScanner(): void {
-  const scanAll = () => {
-    for (const element of document.querySelectorAll('[data-testid="tweet"]')) mark(element);
+function mark(element: Element): void {
+  const tweet = readTweetIdentity(element);
+  const identity = `${tweet?.tweetId ?? ""}|${tweet?.userId ?? ""}|${
+    tweet?.screenName ?? ""
+  }`;
+  if (element.getAttribute(ATTR.identity) !== identity) {
+    setAttribute(element, ATTR.identity, identity);
+    element.removeAttribute(ATTR.decided);
+    element.removeAttribute("data-xlear-shown");
+    // 遮罩与辅助技术状态由过滤引擎统一恢复，不能提前丢掉清理依据。
+  }
+  setAttribute(element, ATTR.tweet, tweet?.tweetId);
+  setAttribute(element, ATTR.user, tweet?.userId);
+  setAttribute(element, ATTR.name, tweet?.screenName);
+  setAttribute(element, ATTR.checked, "1");
+}
+
+export function installScanner(): () => void {
+  const dirty = new Set<Element>();
+  let scheduled = false;
+  let stopped = false;
+  const queue = (element: Element) => {
+    dirty.add(element);
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      if (stopped) return;
+      for (const tweet of dirty) if (tweet.isConnected) mark(tweet);
+      dirty.clear();
+    });
   };
-
-  scanAll();
-  document.addEventListener("DOMContentLoaded", scanAll, { once: true });
-
+  const scanAll = () => {
+    if (!document.hidden) document.querySelectorAll(SEL.tweet).forEach(queue);
+  };
   const observer = new MutationObserver((mutations) => {
-    let dirty = false;
     for (const mutation of mutations) {
+      const target = mutation.target instanceof Element
+        ? mutation.target
+        : mutation.target.parentElement;
+      // 忽略扩展自己的占位文案，避免 DOM → 扫描 → DOM 的循环。
+      if (target?.closest("[data-xlear-overlay]")) continue;
+      const parent = target?.closest(SEL.tweet);
+      if (parent) queue(parent);
       for (const node of mutation.addedNodes) {
-        if (!(node instanceof Element)) continue;
-        dirty = true;
-        if (node.matches('[data-testid="tweet"]')) mark(node);
-        for (const nested of node.querySelectorAll('[data-testid="tweet"]')) mark(nested);
+        if (
+          !(node instanceof Element) || node.matches("[data-xlear-overlay]")
+        ) continue;
+        if (node.matches(SEL.tweet)) queue(node);
+        node.querySelectorAll(SEL.tweet).forEach(queue);
       }
     }
-    // 虚拟列表会复用节点，变化后整体重扫一遍，保证新出现的帖子都被标记。
-    if (dirty) scanAll();
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-
-  // 低频兜底重扫：对某些只改属性不改结构的渲染做一次补齐。
-  setInterval(scanAll, 5_000);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["href", "data-href", "itemid"],
+  });
+  document.addEventListener("visibilitychange", scanAll);
+  const timer = setInterval(scanAll, 5_000);
+  scanAll();
+  return () => {
+    stopped = true;
+    observer.disconnect();
+    clearInterval(timer);
+    dirty.clear();
+    document.removeEventListener("visibilitychange", scanAll);
+  };
 }

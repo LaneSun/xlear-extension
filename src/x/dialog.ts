@@ -42,7 +42,7 @@ const HOST_ID = "xlear-dialog-host";
 
 const DIALOG_CSS = `
   /* 手机浏览器（X 移动网页）视口窄，内边距按视口缩放、留出两侧空隙。 */
-  :host { all: initial; --sheet-pad: clamp(20px, 6vw, 32px); }
+  :host { all: initial; --sheet-pad: clamp(16px, 5vw, 28px); }
   .backdrop {
     position: fixed;
     inset: 0;
@@ -52,11 +52,18 @@ const DIALOG_CSS = `
     justify-content: center;
     background: var(--xlear-mask, rgba(91, 112, 131, 0.4));
     font-family: var(--xlear-font);
+    box-sizing: border-box;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    overscroll-behavior: contain;
   }
   .sheet {
-    width: min(320px, calc(100vw - 32px));
-    max-height: 80vh;
+    width: min(360px, 100%);
+    max-height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
+    overflow-wrap: anywhere;
     padding: var(--sheet-pad);
     border-radius: 16px;
     background: var(--xlear-sheet, var(--xlear-bg));
@@ -64,10 +71,13 @@ const DIALOG_CSS = `
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
     box-sizing: border-box;
   }
-  h1 { margin: 0 0 16px; font-size: 20px; line-height: 24px; font-weight: 700; }
+  h1 { flex: none; margin: 0 0 16px; font-size: 20px; line-height: 24px; font-weight: 700; }
   /* 列表区：上下各一条贯通整宽的细分隔线（用负外边距抵消 sheet 的内边距），
      列表自身定高 + 内部滚动，滚动条隐藏。 */
   .lists-section {
+    min-height: 48px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     margin: 0 calc(-1 * var(--sheet-pad)) 16px;
     padding: 0 var(--sheet-pad);
     border-top: 1px solid var(--xlear-border);
@@ -78,14 +88,14 @@ const DIALOG_CSS = `
     list-style: none;
     margin: 0;
     padding: 12px 0;
-    height: 240px;
+    max-height: 240px;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;
   }
   ul.lists::-webkit-scrollbar { width: 0; height: 0; }
   ul.lists li + li { margin-top: 10px; }
-  label.option { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 15px; }
+  label.option { min-height: 44px; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 15px; }
   /* 圆形勾选：与扩展页面里的列表复选框同一套观感（那边是 .xl-list-row input[type="checkbox"]）。 */
   label.option input {
     appearance: none;
@@ -117,7 +127,7 @@ const DIALOG_CSS = `
   .name { display: block; font-weight: 700; }
   .reason { display: block; margin-top: 2px; color: var(--xlear-muted); font-size: 13px; line-height: 18px; }
   /* 与 X 原生弹窗一致：两键之间 12px。 */
-  .actions { display: flex; flex-direction: column; gap: 12px; }
+  .actions { flex: none; display: flex; flex-direction: column; gap: 12px; }
   /* 主操作占一行，取消单独一行，省纵向空间。 */
   .actions .row { display: flex; gap: 12px; }
   .actions .row > button { flex: 1 1 0; min-width: 0; }
@@ -132,7 +142,9 @@ const DIALOG_CSS = `
     font-size: 15px;
     font-weight: 700;
     cursor: pointer;
+    touch-action: manipulation;
   }
+  :focus-visible { outline: 2px solid var(--xlear-accent); outline-offset: 2px; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   .primary { background: var(--xlear-danger); color: #ffffff; }
   /* 非破坏性动作（例如「不再隐藏」）用品牌色，不借用表示屏蔽的红色。 */
@@ -231,7 +243,7 @@ function buildSheet(
   sheet.append(actions);
 
   backdrop.append(sheet);
-  return { backdrop, focusTarget: confirmButton };
+  return { backdrop, focusTarget: list.querySelector("input") ?? cancel };
 }
 
 export interface ConfirmOptions {
@@ -308,19 +320,48 @@ function openDialog<T>(
   ) => { backdrop: HTMLElement; focusTarget: HTMLElement | null },
   cancelValue: T,
 ): Promise<T> {
+  if (isReasonDialogOpen()) return Promise.resolve(cancelValue);
   return new Promise<T>((resolve) => {
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    const inert = new Map<Element, boolean>();
     let settled = false;
     const settle = (value: T) => {
       if (settled) return;
       settled = true;
       document.removeEventListener("keydown", onKey, true);
+      window.visualViewport?.removeEventListener("resize", layout);
+      window.visualViewport?.removeEventListener("scroll", layout);
+      window.removeEventListener("resize", layout);
+      window.removeEventListener("pagehide", cancel);
       host.remove();
+      for (const [node, old] of inert) node.toggleAttribute("inert", old);
+      document.body.style.overflow = overflow;
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true });
+      }
       resolve(value);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      settle(cancelValue);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        settle(cancelValue);
+      } else if (event.key === "Tab") {
+        const focusable = [
+          ...shadow.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+          ),
+        ];
+        if (!focusable.length) return;
+        const index = focusable.indexOf(shadow.activeElement as HTMLElement);
+        const next = event.shiftKey
+          ? (index <= 0 ? focusable.length - 1 : index - 1)
+          : (index + 1) % focusable.length;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        focusable[next]?.focus();
+      }
     };
 
     // 挂在 body 而不是 #layers：#layers 在自动执行时会被整体隐藏，
@@ -339,8 +380,27 @@ function openDialog<T>(
 
     const { backdrop, focusTarget } = build(settle);
     shadow.append(backdrop);
-    // 焦点移入弹窗，键盘用户可以直接操作。
-    focusTarget?.focus();
+    for (const child of document.body.children) {
+      if (child === host) continue;
+      inert.set(child, child.hasAttribute("inert"));
+      child.setAttribute("inert", "");
+    }
+    document.body.style.overflow = "hidden";
+    // 手机地址栏、软键盘与缩放改变的是可视视口，按钮始终留在可操作区域。
+    const layout = () => {
+      const viewport = window.visualViewport;
+      backdrop.style.left = `${viewport?.offsetLeft ?? 0}px`;
+      backdrop.style.top = `${viewport?.offsetTop ?? 0}px`;
+      backdrop.style.width = `${viewport?.width ?? innerWidth}px`;
+      backdrop.style.height = `${viewport?.height ?? innerHeight}px`;
+    };
+    const cancel = () => settle(cancelValue);
+    window.visualViewport?.addEventListener("resize", layout);
+    window.visualViewport?.addEventListener("scroll", layout);
+    window.addEventListener("resize", layout);
+    window.addEventListener("pagehide", cancel, { once: true });
+    layout();
+    focusTarget?.focus({ preventScroll: true });
   });
 }
 

@@ -6,9 +6,10 @@
  */
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { installScanner } from "../src/x/scanner.ts";
+import { X_MATCHES } from "../src/x/selectors.ts";
 
 export default defineContentScript({
-  matches: ["https://x.com/*", "https://twitter.com/*"],
+  matches: X_MATCHES,
   runAt: "document_start",
   world: "MAIN",
   main() {

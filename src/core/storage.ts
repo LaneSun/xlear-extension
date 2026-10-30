@@ -104,8 +104,8 @@ function db(): Promise<IDBPDatabase<XlearDB>> {
 /** 批量判断账号是否命中过滤库。返回的 Map 只包含命中的账号。 */
 export async function matchUsers(
   userIds: readonly string[],
-  /** 不参与判定的列表（停用的本地列表）：它们的条目仍然留着，只是现在不算数。 */
-  skipLists?: ReadonlySet<string>,
+  /** 当前订阅的在线列表与启用的本地列表；旧缓存、退订与停用列表都不参与判定。 */
+  activeLists: ReadonlySet<string>,
 ): Promise<Map<string, { lists: string[] }>> {
   const result = new Map<string, { lists: string[] }>();
   if (userIds.length === 0) return result;
@@ -123,13 +123,12 @@ export async function matchUsers(
   );
   for (const record of filtered) {
     if (!record || allowedIds.has(record.userId)) continue;
-    result.set(record.userId, { lists: [...record.lists] });
+    const lists = record.lists.filter((id) => activeLists.has(id));
+    if (lists.length > 0) result.set(record.userId, { lists });
   }
   for (const record of overlay) {
     if (!record || allowedIds.has(record.userId)) continue;
-    const lists = skipLists && skipLists.size > 0
-      ? record.lists.filter((id) => !skipLists.has(id))
-      : record.lists;
+    const lists = record.lists.filter((id) => activeLists.has(id));
     if (lists.length === 0) continue;
     const existing = result.get(record.userId);
     if (existing) {
@@ -162,7 +161,7 @@ export async function applyChanges(
           await store.put({
             ...existing,
             screenName,
-            lists: [...existing.lists, listId],
+            lists: [...new Set([...existing.lists, listId])],
           });
         }
       } else {
@@ -202,10 +201,7 @@ export async function replaceListSnapshot(
       else await store.delete(record.userId);
     }
   }
-  await tx.done;
-
-  const writeTx = database.transaction("filtered", "readwrite");
-  const writeStore = writeTx.objectStore("filtered");
+  const writeStore = store;
   const now = Date.now();
   for (const userId of incoming) {
     const existing = await writeStore.get(userId);
@@ -213,19 +209,23 @@ export async function replaceListSnapshot(
       if (!existing.lists.includes(listId)) {
         await writeStore.put({
           ...existing,
-          lists: [...existing.lists, listId],
+          lists: [...new Set([...existing.lists, listId])],
         });
       }
     } else {
       await writeStore.put({ userId, lists: [listId], at: now });
     }
   }
-  await writeTx.done;
+  await tx.done;
 }
 
 /** 退订时清掉该列表带来的全部条目。 */
 export async function dropList(listId: string): Promise<void> {
   await replaceListSnapshot(listId, []);
+}
+
+export async function countListEntries(listId: string): Promise<number> {
+  return await (await db()).countFromIndex("filtered", "byList", listId);
 }
 
 export async function countFiltered(): Promise<number> {

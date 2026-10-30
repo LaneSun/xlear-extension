@@ -1,18 +1,45 @@
 import { render } from "preact";
 import { browser } from "wxt/browser";
 import { useEffect, useState } from "preact/hooks";
-import type { ConfigResponse, StatusResponse } from "../../src/core/messaging.ts";
+import type {
+  ConfigResponse,
+  StatusResponse,
+} from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
 import { requestServerPermission } from "../../src/core/permissions.ts";
 import { SERVER_URL } from "../../src/core/server.ts";
-import { CircleAlert, CloudOff, EyeOff, Inbox, ListChecks, RefreshCw, Settings } from "lucide-preact";
-import { applyDocumentLocale, applyLocale, formatRelativeTime, localeSignal, t } from "../../src/i18n.ts";
-import { Banner, Card, Chip, Icon, Logo, Row, Spinner } from "../../src/ui/components.tsx";
+import {
+  CircleAlert,
+  CloudOff,
+  EyeOff,
+  Inbox,
+  ListChecks,
+  RefreshCw,
+  Settings,
+} from "lucide-preact";
+import {
+  applyDocumentLocale,
+  applyLocale,
+  formatRelativeTime,
+  localeSignal,
+  t,
+} from "../../src/i18n.ts";
+import {
+  Banner,
+  Card,
+  Chip,
+  Icon,
+  Logo,
+  Row,
+  Spinner,
+} from "../../src/ui/components.tsx";
 import "../../src/ui/styles.css";
 
 function Popup() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<
+    { tone: "info" | "error"; text: string } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   // 读一下语言信号，切换语言时整页重渲染。
   void localeSignal.value;
@@ -55,19 +82,21 @@ function Popup() {
 
   if (!status) {
     return (
-      <div style="min-width: 300px; max-width: 460px; width: 100%; margin: 0 auto; padding: 16px;">
+      <div style="min-width: min(300px, 100vw); max-width: 460px; width: 100%; margin: 0 auto; padding: 16px;">
         <strong style="font-size: 18px; display: inline-flex; align-items: center; gap: 7px;">
           <Logo size={20} />
           Xlear
         </strong>
-        <div style="margin-top: 8px;"><Spinner label={t("common.loading")} /></div>
+        <div style="margin-top: 8px;">
+          <Spinner label={t("common.loading")} />
+        </div>
         {message && <Banner tone={message.tone}>{message.text}</Banner>}
       </div>
     );
   }
 
   return (
-    <div style="min-width: 300px; max-width: 460px; width: 100%; margin: 0 auto; padding: 16px;">
+    <div style="min-width: min(300px, 100vw); max-width: 460px; width: 100%; margin: 0 auto; padding: 16px;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
         <strong style="font-size: 18px; display: inline-flex; align-items: center; gap: 7px;">
           <Logo size={20} />
@@ -92,7 +121,9 @@ function Popup() {
 
       {message && <Banner tone={message.tone}>{message.text}</Banner>}
       {status.lastSyncError && (
-        <Banner tone="error">{t("ext.syncError", { error: status.lastSyncError })}</Banner>
+        <Banner tone="error">
+          {t("ext.syncError", { error: status.lastSyncError })}
+        </Banner>
       )}
       <Card>
         {/* 关掉「在线提交」后，屏蔽只在本地生效 —— 在用户动手的地方如实标出来。 */}
@@ -108,7 +139,9 @@ function Popup() {
           <strong>{status.overlay.toLocaleString()}</strong>
         </Row>
         <Row icon={EyeOff} label={t("ext.hiddenToday")}>
-          <strong>{status.counters.hiddenAccounts.length.toLocaleString()}</strong>
+          <strong>
+            {status.counters.hiddenAccounts.length.toLocaleString()}
+          </strong>
         </Row>
         <Row label={t("ext.lastSync")}>
           <span class="xl-muted">{formatRelativeTime(status.lastSyncAt)}</span>
@@ -120,39 +153,52 @@ function Popup() {
         )}
       </Card>
 
-      <div style="display: flex; gap: 8px;">
-          <button
-            class="xl-btn xl-btn-primary"
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              // 同首启页：request 必须先于任何 await（Firefox 的手势检查）。
-              const granted = requestServerPermission();
-              void withBusy(async () => {
-                if (!(await granted)) throw new Error(t("ext.needPermission"));
-                return await sendMessage({ type: "syncNow" });
-              }, t("ext.syncDone"));
-            }}
-          >
-            <Icon icon={RefreshCw} size={15} />
-            {busy ? t("ext.syncing") : t("ext.syncNow")}
-          </button>
-          <button
-            class="xl-btn xl-btn-ghost"
-            type="button"
-            disabled={busy}
-            onClick={() => void browser.runtime.openOptionsPage()}
-          >
-            <Icon icon={Settings} size={15} />
-            {t("ext.options")}
-          </button>
+      <div
+        class="xl-popup-actions"
+        style="display: flex; flex-wrap: wrap; gap: 8px;"
+      >
+        <button
+          class="xl-btn xl-btn-primary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            // 同首启页：request 必须先于任何 await（Firefox 的手势检查）。
+            const granted = requestServerPermission();
+            void withBusy(async () => {
+              if (!(await granted)) throw new Error(t("ext.needPermission"));
+              return await sendMessage({ type: "syncNow" });
+            }, t("ext.syncDone"));
+          }}
+        >
+          <Icon icon={RefreshCw} size={15} />
+          {busy ? t("ext.syncing") : t("ext.syncNow")}
+        </button>
+        <button
+          class="xl-btn xl-btn-ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => void browser.runtime.openOptionsPage()}
+        >
+          <Icon icon={Settings} size={15} />
+          {t("ext.options")}
+        </button>
       </div>
 
-      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 12px;">
-        <a class="xl-muted" href={`${SERVER_URL}/status`} target="_blank" rel="noreferrer">
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; font-size: 12px; margin-top: 12px;">
+        <a
+          class="xl-muted"
+          href={`${SERVER_URL}/status`}
+          target="_blank"
+          rel="noreferrer"
+        >
           {t("ext.transparency")}
         </a>
-        <a class="xl-muted" href={`${SERVER_URL}/search`} target="_blank" rel="noreferrer">
+        <a
+          class="xl-muted"
+          href={`${SERVER_URL}/search`}
+          target="_blank"
+          rel="noreferrer"
+        >
           {t("ext.lookup")}
         </a>
       </div>

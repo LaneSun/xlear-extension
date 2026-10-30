@@ -470,3 +470,89 @@ body {
 .xl-entry-name a:hover {
   text-decoration: underline;
 }
+
+/* 窄屏、长文案与触屏操作共用；输入字号避免移动浏览器聚焦时自动放大。 */
+.xl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+.xl-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.xl-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .xl-row {
+    flex-wrap: wrap;
+  }
+  .xl-row-actions {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .xl-row-actions > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .xl-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .xl-btn,
+  .xl-menu-item {
+    min-height: 44px;
+    white-space: normal;
+  }
+  .xl-input,
+  .xl-select,
+  .xl-textarea {
+    font-size: 16px;
+  }
+  .xl-modal-backdrop {
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .xl-entry-row {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+.xl-tabs {
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: thin;
+}
+.xl-tabs > button {
+  flex: none;
+  min-height: 44px;
+}
+.xl-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.xl-popup-actions > button {
+  min-width: 0;
+  max-width: 100%;
+}

@@ -152,7 +152,7 @@ function Onboarding() {
   }
 
   return (
-    <div style="max-width: 680px; margin: 0 auto; padding: 32px;">
+    <div style="max-width: 680px; margin: 0 auto; padding: clamp(16px, 4vw, 32px);">
       <h1 style="font-size: 24px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
         <Logo size={24} />
         {t("onboarding.welcome")}
@@ -236,7 +236,8 @@ function Onboarding() {
           >
             <ListPicker
               lists={lists}
-              isSelected={(id) => selected.includes(id)}
+              isSelected={(id) =>
+                selected.includes(id)}
               onToggle={(id, checked) =>
                 setSelected(
                   checked

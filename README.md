@@ -19,7 +19,7 @@ before it goes in, and from then on everyone subscribed to that list stops seein
 ## What it does
 
 - **Hides the noise.** Posts from listed accounts are hidden right in the timeline, with a small card
-  in their place. One click brings a post back; another keeps that account off your feed for good.
+  in their place. Show restores that post; Never hide again allows the account on this device.
 - **Turns blocking into a report.** When you click Block on X, X's confirmation dialog is replaced by a
   short reason picker built from the lists you subscribe to. Pick one and confirm — X sends the block,
   and the report goes to the platform for review.
@@ -57,6 +57,21 @@ and every listed account can be appealed on the website.
   </tr>
 </table>
 
+## Mobile browsing
+
+Xlear recognizes both desktop and mobile X.com web layouts, including mobile posts without the
+desktop tweet markers. The filter card wraps its actions for small screens, and the reason picker
+keeps its buttons reachable when the visible viewport shrinks. English, Chinese, Japanese and
+Russian layouts are checked at widths down to 320 CSS pixels.
+
+Use a browser that can run this extension on the device. Xlear operates on web pages, not inside
+the native X app. The **Block on X** action appears only when the page exposes a supported native
+block entry point; the read-only mobile page can still hide posts, show a post and allow an account.
+
+Mobile page recognition and filtering were checked with the built Chromium extension on a public,
+logged-out X page using a mobile user agent. Firefox builds are validated; Android/iOS device
+installation and authenticated X blocking were not part of that verification.
+
 ## Install (release builds)
 
 Installs come from [Releases](https://github.com/LaneSun/xlear-extension/releases) or from
@@ -81,5 +96,11 @@ Every release ships `SHA256SUMS` alongside the artifacts; the pipeline is docume
 ## Development
 
 Build conventions, module map and gotchas: [AGENTS.md](AGENTS.md).
+
+Run `pnpm run compile`, `pnpm run build` and `pnpm run build:firefox`. Browser regressions live in
+`scripts/verify-mobile.mjs` (local X fixtures) and `scripts/verify-extension.mjs` (a fresh browser
+profile with the built Chromium extension). They require Playwright and Chromium; set
+`XLEAR_PLAYWRIGHT` to its module path and `XLEAR_CHROMIUM` to the browser executable when they are not
+on the default paths. Both scripts use local test data and mocked service responses.
 
 License: UNLICENSE (public domain).

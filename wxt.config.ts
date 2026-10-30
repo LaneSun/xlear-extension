@@ -1,9 +1,9 @@
+import { X_MATCHES } from "./src/x/selectors.ts";
 import { defineConfig } from "wxt";
 import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/vite";
 // 服务端地址只在 src/core/server.ts 里写一次，清单里的 host_permissions 也从那里取。
 import { SERVER_ORIGIN_PATTERN } from "./src/core/server.ts";
-
 
 export default defineConfig({
   manifestVersion: 3,
@@ -33,8 +33,7 @@ export default defineConfig({
     },
     permissions: ["storage", "alarms"],
     host_permissions: [
-      "https://x.com/*",
-      "https://twitter.com/*",
+      ...X_MATCHES,
       // 服务端地址：清单声明一次，运行时就能直接用（Firefox 的 MV3 仍可能没给，见 permissions.ts）。
       SERVER_ORIGIN_PATTERN,
     ],
