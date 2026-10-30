@@ -13,10 +13,8 @@
  * 而这个弹窗只有一点点状态，用原生 DOM 反而更小更稳。
  */
 import { observeTheme, themeVariables } from "./theme.ts";
-import {
-  type ReasonHistory,
-  recentReasonLists,
-} from "../core/reason-history.ts";
+import { lockPageScroll } from "../ui/scroll-lock.ts";
+import { type ReasonHistory, recentReasonLists } from "../core/reason-history.ts";
 
 export interface DialogList {
   id: string;
@@ -47,6 +45,12 @@ export interface DialogOptions {
 }
 
 const HOST_ID = "xlear-dialog-host";
+let cancelActive: (() => void) | undefined;
+
+/** 总开关关闭或内容脚本失效时，取消尚未完成的交互。 */
+export function closeDialog(): void {
+  cancelActive?.();
+}
 
 const DIALOG_CSS = `
   /* 手机浏览器（X 移动网页）视口窄，内边距按视口缩放、留出两侧空隙。 */
@@ -169,8 +173,7 @@ const DIALOG_CSS = `
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  options: { class?: string; text?: string; attrs?: Record<string, string> } =
-    {},
+  options: { class?: string; text?: string; attrs?: Record<string, string> } = {},
 ): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (options.class) node.className = options.class;
@@ -367,12 +370,13 @@ function openDialog<T>(
   if (isReasonDialogOpen()) return Promise.resolve(cancelValue);
   return new Promise<T>((resolve) => {
     const previous = document.activeElement;
-    const overflow = document.body.style.overflow;
+    const unlockScroll = lockPageScroll();
     const inert = new Map<Element, boolean>();
     let settled = false;
     const settle = (value: T) => {
       if (settled) return;
       settled = true;
+      cancelActive = undefined;
       document.removeEventListener("keydown", onKey, true);
       window.visualViewport?.removeEventListener("resize", layout);
       window.visualViewport?.removeEventListener("scroll", layout);
@@ -381,7 +385,7 @@ function openDialog<T>(
       stopTheme();
       host.remove();
       for (const [node, old] of inert) node.toggleAttribute("inert", old);
-      document.body.style.overflow = overflow;
+      unlockScroll();
       if (previous instanceof HTMLElement && previous.isConnected) {
         previous.focus({ preventScroll: true });
       }
@@ -429,7 +433,6 @@ function openDialog<T>(
       inert.set(child, child.hasAttribute("inert"));
       child.setAttribute("inert", "");
     }
-    document.body.style.overflow = "hidden";
     // 手机地址栏、软键盘与缩放改变的是可视视口，按钮始终留在可操作区域。
     const layout = () => {
       const viewport = window.visualViewport;
@@ -439,6 +442,7 @@ function openDialog<T>(
       backdrop.style.height = `${viewport?.height ?? innerHeight}px`;
     };
     const cancel = () => settle(cancelValue);
+    cancelActive = cancel;
     window.visualViewport?.addEventListener("resize", layout);
     window.visualViewport?.addEventListener("scroll", layout);
     window.addEventListener("resize", layout);

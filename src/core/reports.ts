@@ -13,6 +13,7 @@ import {
   deleteReport,
   enqueueReport,
   listReportQueue,
+  type OutboxRecord,
   updateReport,
 } from "./storage.ts";
 
@@ -91,13 +92,40 @@ export function flushOutbox(): Promise<ReportSubmitResult[]> {
   return queueOutbox(() => flushOnce());
 }
 
+/** 采纳列表时先把全部证据可靠入队，网络失败不能中断后续条目或阻塞名单转换。 */
+export function enqueueAdoptedReports(records: readonly OutboxRecord[]): Promise<number> {
+  return queueOutbox(async () => {
+    if (!submissionsAllowed(await loadConfig())) return 0;
+    const identity = (record: OutboxRecord) =>
+      JSON.stringify([record.userId, record.tweetId, record.listId]);
+    const known = new Set((await listReportQueue()).map(identity));
+    let added = 0;
+    for (const record of records) {
+      if (known.has(identity(record))) continue;
+      await enqueueReport(record);
+      known.add(identity(record));
+      added++;
+    }
+    return added;
+  });
+}
+
 async function flushOnce(
   target?: { userId: string; tweetId: string },
 ): Promise<ReportSubmitResult[]> {
   const queue = await listReportQueue();
   if (queue.length === 0) return [];
   if (!submissionsAllowed(await loadConfig())) return [];
-  const key = await ensureAccount();
+  let key: string;
+  try {
+    key = await ensureAccount();
+  } catch (error) {
+    // 首次申请账号也可能离线；举报已入队，回执仍应说明待重试，不能抹掉本地成功。
+    const detail = error instanceof Error ? error.message : String(error);
+    return queue.filter((record) =>
+      !target || (record.userId === target.userId && record.tweetId === target.tweetId)
+    ).map((record) => ({ listId: record.listId, status: "queued", detail }));
+  }
   const results: ReportSubmitResult[] = [];
 
   // 按「目标 + 帖子」聚合，一次请求带上多个列表，减少往返。

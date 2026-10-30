@@ -7,7 +7,7 @@ import { X_MATCHES } from "../src/x/selectors.ts";
  */
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
-import type { ListSummary, ReportSubmitResult } from "../contract/types.ts";
+import type { ListSummary } from "../contract/types.ts";
 import { applyLocale, t } from "../src/i18n.ts";
 import { fetchLists, submitCandidate } from "../src/core/api.ts";
 import {
@@ -15,15 +15,13 @@ import {
   loadAccountKey,
   loadConfig,
   loadState,
+  mutateConfig,
   mutateState,
   patchConfig,
   todayKey,
 } from "../src/core/config.ts";
 import type { LocalList } from "../src/core/settings.ts";
-import {
-  normalizeReasonHistory,
-  rememberReasonSelection,
-} from "../src/core/reason-history.ts";
+import { normalizeReasonHistory, rememberReasonSelection } from "../src/core/reason-history.ts";
 import type {
   AllowListResponse,
   ConfigResponse,
@@ -39,6 +37,7 @@ import type {
   WebdavResultResponse,
 } from "../src/core/messaging.ts";
 import {
+  enqueueAdoptedReports,
   flushOutbox,
   outboxSize,
   submitBlockReport,
@@ -50,11 +49,11 @@ import {
   countFiltered,
   countOverlay,
   disallowUser,
-  dropList,
   listAllowed,
   listOverlay,
   listReportQueue,
   matchUsers,
+  type OutboxRecord,
   overlayCounts,
   overlayForList,
   pruneOverlayCoveredByOnline,
@@ -62,9 +61,12 @@ import {
   removeOverlayFromList,
   removeOverlayList,
 } from "../src/core/storage.ts";
-import { syncAll } from "../src/core/sync.ts";
+import { syncAll, withSyncLock } from "../src/core/sync.ts";
+import { overlayEvidence } from "../src/core/overlay.ts";
 import { SubmissionDisabledError } from "../src/core/submission.ts";
 import {
+  exportToFile,
+  importFromFile,
   pullFromWebdav,
   pushToWebdav,
   testWebdav,
@@ -74,7 +76,12 @@ const SYNC_ALARM = "xlear-sync";
 const OUTBOX_ALARM = "xlear-outbox";
 const SYNC_PERIOD_MINUTES = 24 * 60;
 
-let listsCache: { at: number; lists: ListSummary[] } | null = null;
+interface CachedCatalog {
+  at: number;
+  locale: string;
+  lists: ListSummary[];
+}
+let listsCache: CachedCatalog | null = null;
 
 export default defineBackground(() => {
   console.log("[xlear] 后台已启动");
@@ -88,11 +95,7 @@ export default defineBackground(() => {
     const localIds = new Set((stored?.localLists ?? []).map((list) => list.id));
     const leaked = (stored?.subscriptions ?? []).some((id) => localIds.has(id));
     if (leaked) {
-      await patchConfig({
-        subscriptions: (stored?.subscriptions ?? []).filter((id) =>
-          !localIds.has(id)
-        ),
-      });
+      await mutateConfig((current) => ({ subscriptions: current.subscriptions }));
       console.info("[xlear] 已修正存储里混入订阅的本地列表 id");
     }
   })();
@@ -119,9 +122,7 @@ export default defineBackground(() => {
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM) {
-      void runSync().catch((error) =>
-        console.warn("[xlear] 定时同步失败", error)
-      );
+      void runSync().catch((error) => console.warn("[xlear] 定时同步失败", error));
     }
     if (alarm.name === OUTBOX_ALARM) {
       void flushOutbox().catch(() => {});
@@ -146,10 +147,12 @@ export default defineBackground(() => {
 /** 没有订阅就不要留着定时同步的告警（退订后它只会空转）。 */
 async function applySyncAlarm(hasSubscriptions: boolean): Promise<void> {
   if (hasSubscriptions) {
-    await browser.alarms.create(SYNC_ALARM, {
-      periodInMinutes: SYNC_PERIOD_MINUTES,
-      delayInMinutes: 1,
-    });
+    if (!await browser.alarms.get(SYNC_ALARM)) {
+      await browser.alarms.create(SYNC_ALARM, {
+        periodInMinutes: SYNC_PERIOD_MINUTES,
+        delayInMinutes: 1,
+      });
+    }
   } else {
     await browser.alarms.clear(SYNC_ALARM);
   }
@@ -174,40 +177,44 @@ async function notifyXTabs(): Promise<void> {
 
 /** 列表目录缓存半小时，理由弹窗要用。 */
 async function getLists(force = false): Promise<ListSummary[]> {
+  const { locale } = await loadConfig();
+  if (!listsCache) {
+    const stored = (await browser.storage.local.get("catalog")).catalog as
+      | CachedCatalog
+      | undefined;
+    if (stored?.locale === locale && Array.isArray(stored.lists)) listsCache = stored;
+  }
+  if (listsCache?.locale !== locale) listsCache = null;
   if (!force && listsCache && Date.now() - listsCache.at < 30 * 60_000) {
     return listsCache.lists;
   }
-  try {
-    const response = await fetchLists();
-    listsCache = { at: Date.now(), lists: response.lists };
-    return response.lists;
-  } catch (error) {
-    // 有缓存就先用缓存（离线时理由弹窗仍能列出订阅的列表）；
-    // 没有缓存就把错误抛出去 —— 一律返回 [] 会让首启页把"连不上服务端"
-    // 显示成"已连接，但服务端还没有启用中的列表"。
-    if (listsCache) return listsCache.lists;
-    throw error;
-  }
+  const response = await fetchLists();
+  listsCache = { at: Date.now(), locale, lists: response.lists };
+  await browser.storage.local.set({ catalog: listsCache });
+  return response.lists;
 }
 
 async function runSync(
   force = false,
 ): Promise<{ lists: number; entries: number; errors: string[] }> {
-  const config = await loadConfig();
-  // 目录先取（force 时绕过缓存），同步器据此决定要不要发差量请求。
-  const catalog = await getLists(force);
-  const result = await syncAll(config, { force, catalog });
+  // 每次同步都刷新目录；force 只表示是否强制重拉条目全量。
+  const catalog = await getLists(true);
+  const queued = await adoptOnlineLocalLists(catalog);
+  const result = await syncAll({ force, catalog });
+  await applySyncAlarm((await loadConfig()).subscriptions.length > 0);
   // 失败细节只进控制台：界面上只报"有几个列表没同步上"，不把服务器的原文摆给用户。
   if (result.errors.length > 0) {
     console.warn("[xlear] 同步失败详情：", ...result.errors);
   }
-  await adoptOnlineLocalLists();
   // 在线条目接管之后，本地覆盖里对应的那些条目退场；不摘的话界面会一直显示"待复核"。
   const takenOver = await pruneOverlayCoveredByOnline();
   if (takenOver > 0) {
     console.info(`[xlear] ${takenOver} 条本地覆盖已由在线条目接管`);
   }
   await notifyXTabs();
+  if (queued > 0) {
+    await flushOutbox().catch((error) => console.warn("[xlear] 采纳条目留待重试", error));
+  }
   return {
     lists: result.lists,
     entries: result.totalEntries,
@@ -222,39 +229,41 @@ async function runSync(
  * 覆盖里** —— 也就是说用户在切换过程中感觉不到任何中断：还没被服务端复核出结论的账号，
  * 依然由本地覆盖顶着；复核出结论后，在线条目自然接管。
  */
-async function adoptOnlineLocalLists(): Promise<void> {
-  const config = await loadConfig();
-  if (config.localLists.length === 0) return;
-  const online = new Set((await getLists(true)).map((list) => list.id));
-  const adopted = config.localLists.filter((list) => online.has(list.id));
-  if (adopted.length === 0) return;
-  await patchConfig({
-    localLists: config.localLists.filter((list) => !online.has(list.id)),
-    // 身份变成在线列表之后，它才该进订阅 —— 目录里从此才有它。
-    subscriptions: [
-      ...new Set([...config.subscriptions, ...adopted.map((list) => list.id)]),
-    ],
+async function adoptOnlineLocalLists(catalog: ListSummary[]): Promise<number> {
+  const online = new Set(catalog.map((list) => list.id));
+  let adopted: LocalList[] = [];
+  await mutateConfig((config) => {
+    adopted = config.localLists.filter((list) => online.has(list.id));
+    return {
+      localLists: config.localLists.filter((list) => !online.has(list.id)),
+      subscriptions: [
+        ...new Set([
+          ...config.subscriptions,
+          ...adopted.filter((list) => list.enabled).map((list) => list.id),
+        ]),
+      ],
+    };
   });
-  // 逐条把原本地条目提交上线：没带帖子的（补字段之前建的）留在本地覆盖里，只对自己生效。
+  await applySyncAlarm((await loadConfig()).subscriptions.length > 0);
+  const reports: OutboxRecord[] = [];
+  // 没有可归属证据的旧条目只留本地；其余先整体入队，再独立尝试网络提交。
   for (const list of adopted) {
     const entries = await overlayForList(list.id);
-    let submitted = 0;
     for (const entry of entries) {
-      if (!entry.tweetId) continue;
-      const results = await submitBlockReport(
-        { userId: entry.userId, screenName: entry.screenName },
-        [list.id],
-        { id: entry.tweetId, url: entry.tweetUrl },
-      );
-      if (
-        results.submitted &&
-        results.results.some((result) => result.status !== "queued")
-      ) submitted++;
+      const evidence = overlayEvidence(entry, list.id);
+      if (!evidence) continue;
+      reports.push({
+        userId: entry.userId,
+        screenName: entry.screenName,
+        listId: list.id,
+        tweetId: evidence.tweetId,
+        tweetUrl: evidence.tweetUrl,
+        createdAt: entry.addedAt,
+        attempts: 0,
+      });
     }
-    console.info(
-      `[xlear] 自建列表已在线：${list.name}（提交 ${submitted}/${entries.length} 条，其余只留本地）`,
-    );
   }
+  return await enqueueAdoptedReports(reports);
 }
 
 async function buildStatus(): Promise<StatusResponse> {
@@ -335,13 +344,9 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       // 停用的本地列表同样不参与判定：条目还在，只是现在不算数。
       const active = new Set([
         ...config.subscriptions,
-        ...config.localLists.filter((list) => list.enabled).map((list) =>
-          list.id
-        ),
+        ...config.localLists.filter((list) => list.enabled).map((list) => list.id),
       ]);
-      const matches = config.enabled
-        ? await matchUsers(message.userIds, active)
-        : new Map();
+      const matches = config.enabled ? await matchUsers(message.userIds, active) : new Map();
       const response: MatchResponse = {
         matches: [...matches.entries()].map(([userId, info]) => ({
           userId,
@@ -351,12 +356,21 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return response;
     }
     case "lists": {
-      const lists = await getLists(message.force);
+      let lists: ListSummary[];
+      let catalogError: string | undefined;
+      try {
+        lists = await getLists(message.force);
+      } catch (error) {
+        lists = listsCache?.lists ?? [];
+        catalogError = error instanceof Error ? error.message : String(error);
+      }
       // `lists` 只有服务器列表：本地列表走 `local`，两者的差别（订阅数、版本、是否同步）
       // 是界面要显示的东西，混在一起就会让欢迎页把本地列表当成可订阅项。
       const counts = await overlayCounts();
       const response: ListsResponse = {
         lists,
+        catalogError,
+        enabled: config.enabled,
         local: config.localLists.map((list) => ({
           id: list.id,
           name: list.name,
@@ -384,7 +398,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         enabled: true,
         createdAt: Date.now(),
       };
-      await patchConfig({ localLists: [...config.localLists, list] });
+      await mutateConfig((current) => ({ localLists: [...current.localLists, list] }));
       // 名单的名称与理由交一份给服务端留档（纯收集）；关闭「在线提交」时这一步会被拒绝，
       // 本地创建与使用照常，其余失败只进控制台。
       void submitCandidate({
@@ -403,11 +417,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       if (!config.localLists.some((list) => list.id === message.id)) {
         return { ok: false };
       }
-      await patchConfig({
-        localLists: config.localLists.map((list) =>
+      await mutateConfig((current) => ({
+        localLists: current.localLists.map((list) =>
           list.id === message.id ? { ...list, enabled: message.enabled } : list
         ),
-      });
+      }));
       // 生效与否直接改变"哪些帖子该隐藏"和屏蔽弹窗里的可选项，打开的 X 标签页要立刻重算。
       await notifyXTabs();
       return { ok: true } satisfies { ok: boolean };
@@ -420,11 +434,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       }
       const found = config.localLists.some((list) => list.id === message.id);
       if (!found) throw new Error("no such local list");
-      await patchConfig({
-        localLists: config.localLists.map((list) =>
+      await mutateConfig((current) => ({
+        localLists: current.localLists.map((list) =>
           list.id === message.id ? { ...list, name, reason } : list
         ),
-      });
+      }));
       // 卡片上显示的就是列表名，改名之后已经打开的 X 标签页也要跟着换。
       await notifyXTabs();
       return { ok: true } satisfies { ok: boolean };
@@ -434,10 +448,10 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         return { ok: false };
       }
       await removeOverlayList(message.id);
-      await patchConfig({
-        localLists: config.localLists.filter((list) => list.id !== message.id),
-        subscriptions: config.subscriptions.filter((id) => id !== message.id),
-      });
+      await mutateConfig((current) => ({
+        localLists: current.localLists.filter((list) => list.id !== message.id),
+        subscriptions: current.subscriptions.filter((id) => id !== message.id),
+      }));
       await notifyXTabs();
       return { ok: true } satisfies { ok: boolean };
     }
@@ -445,9 +459,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       // 此消息只在用户确认屏蔽后发出；离线提交也应记住本次选择。
       const availableIds = new Set([
         ...config.subscriptions,
-        ...config.localLists.filter((list) => list.enabled).map((list) =>
-          list.id
-        ),
+        ...config.localLists.filter((list) => list.enabled).map((list) => list.id),
       ]);
       await mutateState((state) => ({
         reasonHistory: rememberReasonSelection(
@@ -459,7 +471,6 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const localIds = new Set(config.localLists.map((list) => list.id));
       const localTargets = message.listIds.filter((id) => localIds.has(id));
       const remoteTargets = message.listIds.filter((id) => !localIds.has(id));
-      const results: ReportSubmitResult[] = [];
       if (localTargets.length > 0) {
         await addOverlay({
           userId: message.userId,
@@ -467,12 +478,12 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
           lists: localTargets,
           addedAt: Date.now(),
           // 记下帖子：列表日后若被采纳，这条条目才有可复核的证据。
-          tweetId: message.tweetId,
-          tweetUrl: message.tweetUrl,
+          evidence: Object.fromEntries(
+            localTargets.map((
+              id,
+            ) => [id, { tweetId: message.tweetId, tweetUrl: message.tweetUrl }]),
+          ),
         });
-        for (const listId of localTargets) {
-          results.push({ listId, status: "accepted" });
-        }
       }
       if (remoteTargets.length > 0) {
         const outcome = await submitBlockReport(
@@ -484,14 +495,17 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
             text: message.tweetText,
           },
         );
-        results.push(...outcome.results);
         // 关掉「在线提交」时这里什么都没发，如实带回界面（本地列表那部分照常只落本机）。
         return {
-          results,
-          submitted: outcome.submitted,
+          ...outcome,
+          localCount: localTargets.length,
         } satisfies SubmitResponse;
       }
-      return { results, submitted: true } satisfies SubmitResponse;
+      return {
+        results: [],
+        localCount: localTargets.length,
+        submitted: false,
+      } satisfies SubmitResponse;
     }
     case "addOverlay": {
       await addOverlay({
@@ -526,11 +540,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const next = await patchConfig(message.patch);
       // 列表名与理由是按请求语言取的，语言一变缓存立刻作废，否则屏蔽弹窗会混语言。
       if (next.locale !== config.locale) listsCache = null;
-      // 退订的列表要把本地条目一起清掉，否则会"退订了还在过滤"。
-      const removed = config.subscriptions.filter((id) =>
-        !next.subscriptions.includes(id)
-      );
-      for (const listId of removed) await dropList(listId);
+      // 退订保留缓存及配套水位；匹配始终只使用当前启用的列表。
       await applySyncAlarm(next.subscriptions.length > 0);
       // 已打开的 X 标签页要立刻换语言/换订阅，不必等下一次同步或刷新页面。
       await notifyXTabs();
@@ -573,22 +583,32 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const response: WebdavResultResponse = message.direction === "push"
         ? await pushToWebdav(config)
         : await pullFromWebdav(config);
+      if (response.ok && message.direction === "pull") await afterImport();
+      return response;
+    }
+    case "exportBackup":
+      return { content: await exportToFile(message.passphrase) };
+    case "importBackup": {
+      const response = await importFromFile(message.content, message.passphrase);
+      if (response.ok) await afterImport();
       return response;
     }
     case "reasonHistory": {
       return { history: (await loadState()).reasonHistory };
     }
     case "clearAll": {
-      await clearAll();
-      // 版本水位必须一起清掉，否则重新订阅同一列表时增量同步会从旧版本继续，
-      // 导致本地是空的、却以为已经同步过。
-      await mutateState(() => ({
-        reasonHistory: normalizeReasonHistory(undefined),
-        listVersions: {},
-        lastSyncAt: 0,
-        lastSyncError: undefined,
-        counters: { day: todayKey(), hiddenAccounts: [] },
-      }));
+      await withSyncLock(async () => {
+        await clearAll();
+        // 版本水位必须一起清掉，否则重新订阅同一列表时增量同步会从旧版本继续，
+        // 导致本地是空的、却以为已经同步过。
+        await mutateState(() => ({
+          reasonHistory: normalizeReasonHistory(undefined),
+          listVersions: {},
+          lastSyncAt: 0,
+          lastSyncError: undefined,
+          counters: { day: todayKey(), hiddenAccounts: [] },
+        }));
+      });
       await notifyXTabs();
       return { ok: true };
     }
@@ -598,4 +618,12 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return { error: `Unknown message: ${JSON.stringify(unknown)}` };
     }
   }
+}
+
+async function afterImport(): Promise<void> {
+  listsCache = null;
+  const config = await loadConfig();
+  applyLocale(config.locale);
+  await applySyncAlarm(config.subscriptions.length > 0);
+  await notifyXTabs();
 }

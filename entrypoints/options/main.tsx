@@ -1,8 +1,5 @@
 import type { LocalListRow } from "../../src/core/messaging.ts";
-import {
-  type LocalListEntry,
-  LocalListsPanel,
-} from "../../src/ui/components.tsx";
+import { type LocalListEntry, LocalListsPanel } from "../../src/ui/components.tsx";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { ListSummary } from "../../contract/types.ts";
@@ -18,12 +15,9 @@ import type {
   WebdavResultResponse,
 } from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
-import type {
-  ExtensionConfig,
-  LocaleSetting,
-} from "../../src/core/settings.ts";
+import type { ExtensionConfig, LocaleSetting } from "../../src/core/settings.ts";
 import type { AllowRecord, OverlayRecord } from "../../src/core/storage.ts";
-import { exportToFile, importFromFile } from "../../src/sync/webdav.ts";
+import { overlayEvidence } from "../../src/core/overlay.ts";
 import {
   CloudUpload,
   Eraser,
@@ -36,12 +30,7 @@ import {
   SlidersHorizontal,
 } from "lucide-preact";
 import { requestHostPermission } from "../../src/core/permissions.ts";
-import {
-  applyDocumentLocale,
-  applyLocale,
-  formatRelativeTime,
-  t,
-} from "../../src/i18n.ts";
+import { applyDocumentLocale, applyLocale, formatRelativeTime, t } from "../../src/i18n.ts";
 import {
   Banner,
   Card,
@@ -105,7 +94,7 @@ function Options() {
    * 1. 先把**本地数据**（配置、状态、本地覆盖、允许列表 —— 都来自 storage）渲染出来；
    * 2. 再取列表元数据 —— 默认吃后台的 30 分钟缓存，**不联网**；只有用户显式同步才强制拉取。
    */
-  async function load(options: { forceLists?: boolean } = {}): Promise<void> {
+  async function load(): Promise<void> {
     const [config, status, overlay, allowed] = await Promise.all([
       sendMessage<ConfigResponse>({ type: "getConfig" }),
       sendMessage<StatusResponse>({ type: "status" }),
@@ -118,7 +107,10 @@ function Options() {
       config: config.config,
       // 列表可能稍后才到；先用上一次的，避免整页退回加载态。
       lists: previous?.lists ?? [],
-      local: previous?.local ?? [],
+      local: config.config.localLists.map((list) => ({
+        ...list,
+        entries: overlay.overlay.filter((record) => record.lists.includes(list.id)).length,
+      })),
       status,
       overlay: overlay.overlay,
       allowed: allowed.allowed,
@@ -126,14 +118,11 @@ function Options() {
 
     const lists = await sendMessage<ListsResponse>({
       type: "lists",
-      force: options.forceLists === true,
     });
     setData((
       previous,
-    ) => (previous
-      ? { ...previous, lists: lists.lists, local: lists.local }
-      : previous)
-    );
+    ) => (previous ? { ...previous, lists: lists.lists, local: lists.local } : previous));
+    setErrorNotice(lists.catalogError ?? null);
   }
 
   useEffect(() => {
@@ -192,8 +181,6 @@ function Options() {
           t("options.syncFailedLists", { n: result.errors.length }),
         );
       }
-      // 用户显式同步过：这时才值得强制刷新列表元数据。
-      await load({ forceLists: true });
     });
   }
 
@@ -242,14 +229,15 @@ function Options() {
 
   async function handleExport(): Promise<void> {
     await run(async () => {
-      const content = await exportToFile(passphrase);
+      const { content } = await sendMessage<{ content: string }>({
+        type: "exportBackup",
+        passphrase,
+      });
       const blob = new Blob([content], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `xlear-backup-${
-        new Date().toISOString().slice(0, 10)
-      }.json`;
+      anchor.download = `xlear-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
     });
@@ -257,7 +245,11 @@ function Options() {
 
   async function handleImport(): Promise<void> {
     await run(async () => {
-      const result = await importFromFile(importText, passphrase);
+      const result = await sendMessage<WebdavResultResponse>({
+        type: "importBackup",
+        content: importText,
+        passphrase,
+      });
       if (!result.ok) throw new Error(result.message);
     });
   }
@@ -290,9 +282,7 @@ function Options() {
       />
 
       {errorNotice && <Banner tone="error">{errorNotice}</Banner>}
-      {status.lastSyncError && (
-        <Banner tone="error">{t("options.syncFailedHint")}</Banner>
-      )}
+      {status.lastSyncError && <Banner tone="error">{t("options.syncFailedHint")}</Banner>}
 
       {tab === "general" && (
         <>
@@ -314,15 +304,12 @@ function Options() {
                 disabled={busy}
                 onChange={(event) =>
                   void patchConfigValue({
-                    onlineSubmission:
-                      (event.target as HTMLInputElement).checked,
+                    onlineSubmission: (event.target as HTMLInputElement).checked,
                   })}
               />
             }
           >
-            {!config.onlineSubmission && (
-              <Banner tone="warn">{t("options.online.note")}</Banner>
-            )}
+            {!config.onlineSubmission && <Banner tone="warn">{t("options.online.note")}</Banner>}
             <p
               class="xl-muted"
               style="margin: 0; font-size: 13px; line-height: 18px;"
@@ -361,8 +348,7 @@ function Options() {
           <Card title={t("options.syncStatus.title")} icon={RefreshCw}>
             <Row label={t("ext.lastSync")} hint={t("ext.localEntries")}>
               <span class="xl-muted">
-                {status.entries.toLocaleString()} ·{" "}
-                {formatRelativeTime(status.lastSyncAt)}
+                {status.entries.toLocaleString()} · {formatRelativeTime(status.lastSyncAt)}
               </span>
               <button
                 class="xl-btn xl-btn-primary"
@@ -413,7 +399,7 @@ function Options() {
                 .map((record) => ({
                   userId: record.userId,
                   screenName: record.screenName,
-                  tweetUrl: record.tweetUrl,
+                  tweetUrl: overlayEvidence(record, listId)?.tweetUrl,
                 }));
             },
             // 只摘掉这个列表：同一条覆盖记录里的其他列表不受影响。
@@ -500,8 +486,7 @@ function Options() {
                 class="xl-input"
                 type="password"
                 value={passphrase}
-                onInput={(event) =>
-                  setPassphrase((event.target as HTMLInputElement).value)}
+                onInput={(event) => setPassphrase((event.target as HTMLInputElement).value)}
               />
             </Field>
             <div style="margin-bottom: 12px;">
@@ -520,8 +505,7 @@ function Options() {
                 rows={4}
                 placeholder={t("options.transfer.importPlaceholder")}
                 value={importText}
-                onInput={(event) =>
-                  setImportText((event.target as HTMLTextAreaElement).value)}
+                onInput={(event) => setImportText((event.target as HTMLTextAreaElement).value)}
               />
             </Field>
             <button
@@ -589,9 +573,7 @@ function Tabs(props: { current: TabId; onSelect: (id: TabId) => void }) {
             style={{
               background: "none",
               border: "none",
-              borderBottom: `2px solid ${
-                active ? "var(--accent)" : "transparent"
-              }`,
+              borderBottom: `2px solid ${active ? "var(--accent)" : "transparent"}`,
               color: active ? "var(--text)" : "var(--muted)",
               padding: "8px 12px",
               marginBottom: "-1px",
@@ -723,8 +705,7 @@ function WebdavSection(
         <input
           class="xl-input"
           value={webdav.url}
-          onInput={(event) =>
-            setWebdav({ url: (event.target as HTMLInputElement).value })}
+          onInput={(event) => setWebdav({ url: (event.target as HTMLInputElement).value })}
         />
       </Field>
       <div class="xl-form-grid">
@@ -732,8 +713,7 @@ function WebdavSection(
           <input
             class="xl-input"
             value={webdav.username}
-            onInput={(event) =>
-              setWebdav({ username: (event.target as HTMLInputElement).value })}
+            onInput={(event) => setWebdav({ username: (event.target as HTMLInputElement).value })}
           />
         </Field>
         <Field label={t("options.webdav.password")}>
@@ -741,8 +721,7 @@ function WebdavSection(
             class="xl-input"
             type="password"
             value={webdav.password}
-            onInput={(event) =>
-              setWebdav({ password: (event.target as HTMLInputElement).value })}
+            onInput={(event) => setWebdav({ password: (event.target as HTMLInputElement).value })}
           />
         </Field>
       </div>
@@ -754,8 +733,7 @@ function WebdavSection(
           class="xl-input"
           type="password"
           value={webdav.passphrase}
-          onInput={(event) =>
-            setWebdav({ passphrase: (event.target as HTMLInputElement).value })}
+          onInput={(event) => setWebdav({ passphrase: (event.target as HTMLInputElement).value })}
         />
       </Field>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -771,8 +749,7 @@ function WebdavSection(
           class="xl-btn xl-btn-primary"
           type="button"
           disabled={props.busy}
-          onClick={() =>
-            props.onSync("push")}
+          onClick={() => props.onSync("push")}
         >
           {t("options.webdav.push")}
         </button>
@@ -780,8 +757,7 @@ function WebdavSection(
           class="xl-btn xl-btn-ghost"
           type="button"
           disabled={props.busy}
-          onClick={() =>
-            props.onSync("pull")}
+          onClick={() => props.onSync("pull")}
         >
           {t("options.webdav.pull")}
         </button>

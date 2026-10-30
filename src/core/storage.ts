@@ -2,13 +2,18 @@
  * 本地存储。
  *
  * 过滤条目可能有几十万条，`storage.local` 的容量撑不住，因此集合类数据放 IndexedDB：
- * - `filtered`：来自订阅列表的条目，按账号 ID 建主键，另按列表建多值索引以便退订时清理；
+ * - `filtered`：在线列表的缓存，按账号 ID 建主键，另按列表建多值索引；退订只停用、不清空；
  * - `overlay`：用户提交后立刻生效的本地覆盖（平台尚未审核）；
  * - `allow`：用户手动「仍然显示」的账号，优先级最高；
  * - `outbox`：提交失败待重试的举报。
  */
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
-import { takeOverCoveredOverlay } from "./overlay.ts";
+import {
+  mergeOverlay,
+  type OverlayEvidence,
+  takeOverCoveredOverlay,
+  withOverlayLists,
+} from "./overlay.ts";
 
 export interface FilteredRecord {
   userId: string;
@@ -31,6 +36,8 @@ export interface OverlayRecord {
   screenName?: string;
   lists: string[];
   addedAt: number;
+  /** 证据属于列表成员关系，同一账号的不同理由不能共用最后一条帖子。 */
+  evidence?: Record<string, OverlayEvidence>;
   /**
    * 用户点屏蔽时所在的那条帖子。
    *
@@ -117,9 +124,7 @@ export async function matchUsers(
     Promise.all(userIds.map((id) => database.get("allow", id))),
   ]);
   const allowedIds = new Set(
-    allowed.filter((record) => record !== undefined).map((record) =>
-      record.userId
-    ),
+    allowed.filter((record) => record !== undefined).map((record) => record.userId),
   );
   for (const record of filtered) {
     if (!record || allowedIds.has(record.userId)) continue;
@@ -219,11 +224,6 @@ export async function replaceListSnapshot(
   await tx.done;
 }
 
-/** 退订时清掉该列表带来的全部条目。 */
-export async function dropList(listId: string): Promise<void> {
-  await replaceListSnapshot(listId, []);
-}
-
 export async function countListEntries(listId: string): Promise<number> {
   return await (await db()).countFromIndex("filtered", "byList", listId);
 }
@@ -243,14 +243,17 @@ export async function countOverlay(): Promise<number> {
  */
 export async function removeOverlayList(listId: string): Promise<number> {
   const database = await db();
+  const tx = database.transaction("overlay", "readwrite");
+  const store = tx.objectStore("overlay");
   let removed = 0;
-  for (const record of await database.getAll("overlay")) {
+  for (const record of await store.getAll()) {
     if (!record.lists.includes(listId)) continue;
     const rest = record.lists.filter((id) => id !== listId);
-    if (rest.length === 0) await database.delete("overlay", record.userId);
-    else await database.put("overlay", { ...record, lists: rest });
+    if (rest.length === 0) await store.delete(record.userId);
+    else await store.put(withOverlayLists(record, rest));
     removed++;
   }
+  await tx.done;
   return removed;
 }
 
@@ -278,19 +281,15 @@ export async function overlayCounts(): Promise<Map<string, number>> {
 
 export async function addOverlay(record: OverlayRecord): Promise<void> {
   const database = await db();
-  const existing = await database.get("overlay", record.userId);
-  if (existing) {
-    await database.put("overlay", {
-      ...existing,
-      screenName: record.screenName ?? existing.screenName,
-      lists: [...new Set([...existing.lists, ...record.lists])],
-      // 同一个账号可能从不同帖子被加进来，留最新的那条：举报只需要一条帖子作为证据。
-      tweetId: record.tweetId ?? existing.tweetId,
-      tweetUrl: record.tweetUrl ?? existing.tweetUrl,
-    });
-    return;
-  }
-  await database.put("overlay", record);
+  const tx = database.transaction("overlay", "readwrite");
+  const store = tx.objectStore("overlay");
+  const existing = await store.get(record.userId);
+  await store.put(mergeOverlay(existing, {
+    ...record,
+    screenName: record.screenName ?? existing?.screenName,
+    addedAt: existing?.addedAt ?? record.addedAt,
+  }));
+  await tx.done;
 }
 
 export async function removeOverlay(userId: string): Promise<void> {
@@ -307,11 +306,15 @@ export async function removeOverlayFromList(
   listId: string,
 ): Promise<void> {
   const database = await db();
-  const record = await database.get("overlay", userId);
-  if (!record) return;
-  const lists = record.lists.filter((id) => id !== listId);
-  if (lists.length === 0) await database.delete("overlay", userId);
-  else await database.put("overlay", { ...record, lists });
+  const tx = database.transaction("overlay", "readwrite");
+  const store = tx.objectStore("overlay");
+  const record = await store.get(userId);
+  if (record) {
+    const lists = record.lists.filter((id) => id !== listId);
+    if (lists.length === 0) await store.delete(userId);
+    else await store.put(withOverlayLists(record, lists));
+  }
+  await tx.done;
 }
 
 export async function listOverlay(): Promise<OverlayRecord[]> {
@@ -326,10 +329,11 @@ export async function listOverlay(): Promise<OverlayRecord[]> {
  */
 export async function pruneOverlayCoveredByOnline(): Promise<number> {
   const database = await db();
-  const records = await database.getAll("overlay");
-  if (records.length === 0) return 0;
+  const tx = database.transaction(["overlay", "filtered"], "readwrite");
+  const overlay = tx.objectStore("overlay");
+  const records = await overlay.getAll();
   const filtered = await Promise.all(
-    records.map((record) => database.get("filtered", record.userId)),
+    records.map((record) => tx.objectStore("filtered").get(record.userId)),
   );
   const online = new Map<string, string[]>();
   for (const entry of filtered) {
@@ -345,12 +349,13 @@ export async function pruneOverlayCoveredByOnline(): Promise<number> {
   for (const record of records) {
     const next = kept.get(record.userId);
     if (!next) {
-      await database.delete("overlay", record.userId);
+      await overlay.delete(record.userId);
       removed++;
     } else if (next.lists.length !== record.lists.length) {
-      await database.put("overlay", next);
+      await overlay.put(next);
     }
   }
+  await tx.done;
   return removed;
 }
 
@@ -420,7 +425,7 @@ export interface ExportBundle {
   accountKey: string | null;
   filtered: FilteredRecord[];
   overlay: OverlayRecord[];
-  allow: { userId: string; at: number }[];
+  allow: AllowRecord[];
   outbox: OutboxRecord[];
 }
 
@@ -428,14 +433,17 @@ export async function exportAll(): Promise<
   Omit<ExportBundle, "config" | "accountKey">
 > {
   const database = await db();
-  return {
-    version: 1,
+  const tx = database.transaction(["filtered", "overlay", "allow", "outbox"]);
+  const result = {
+    version: 1 as const,
     exportedAt: Date.now(),
-    filtered: await database.getAll("filtered"),
-    overlay: await database.getAll("overlay"),
-    allow: await database.getAll("allow"),
-    outbox: await database.getAll("outbox"),
+    filtered: await tx.objectStore("filtered").getAll(),
+    overlay: await tx.objectStore("overlay").getAll(),
+    allow: await tx.objectStore("allow").getAll(),
+    outbox: await tx.objectStore("outbox").getAll(),
   };
+  await tx.done;
+  return result;
 }
 
 export async function importAll(
@@ -446,21 +454,45 @@ export async function importAll(
     ["filtered", "overlay", "allow", "outbox"],
     "readwrite",
   );
-  for (const storeName of ["filtered", "overlay", "allow", "outbox"] as const) {
-    await tx.objectStore(storeName).clear();
+  try {
+    for (const record of bundle.filtered) {
+      const store = tx.objectStore("filtered");
+      const existing = await store.get(record.userId);
+      await store.put({
+        ...record,
+        ...existing,
+        lists: [...new Set([...record.lists, ...(existing?.lists ?? [])])],
+      });
+    }
+    for (const record of bundle.overlay) {
+      const store = tx.objectStore("overlay");
+      const existing = await store.get(record.userId);
+      // 同一成员关系的冲突保留本机选择；新列表的成员关系取并集。
+      await store.put(existing ? mergeOverlay(record, existing) : mergeOverlay(undefined, record));
+    }
+    for (const record of bundle.allow) {
+      const store = tx.objectStore("allow");
+      if (!await store.get(record.userId)) await store.put(record);
+    }
+    const outbox = tx.objectStore("outbox");
+    const identity = (record: OutboxRecord) =>
+      JSON.stringify([record.userId, record.tweetId, record.listId]);
+    const known = new Set((await outbox.getAll()).map(identity));
+    for (const record of bundle.outbox) {
+      if (known.has(identity(record))) continue;
+      const { id: _id, ...rest } = record;
+      await outbox.add(rest);
+      known.add(identity(record));
+    }
+    await tx.done;
+  } catch (error) {
+    // JS 校验/迭代异常不会自动 abort；数据库错误也必须消费 done 的拒绝。
+    try {
+      tx.abort();
+    } catch { /* 已经中止或结束。 */ }
+    await tx.done.catch(() => {});
+    throw error;
   }
-  for (const record of bundle.filtered) {
-    await tx.objectStore("filtered").put(record);
-  }
-  for (const record of bundle.overlay) {
-    await tx.objectStore("overlay").put(record);
-  }
-  for (const record of bundle.allow) await tx.objectStore("allow").put(record);
-  for (const record of bundle.outbox) {
-    const { id, ...rest } = record;
-    await tx.objectStore("outbox").add({ ...rest, id });
-  }
-  await tx.done;
 }
 
 /** 清空所有本地数据（用于「重置扩展」）。 */

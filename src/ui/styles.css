@@ -425,6 +425,7 @@ body {
   width: min(520px, 100%);
   max-height: min(560px, 100%);
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 16px;

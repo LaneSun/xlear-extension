@@ -10,10 +10,8 @@ import type {
   SyncNowResponse,
 } from "../../src/core/messaging.ts";
 import { sendMessage } from "../../src/core/messaging.ts";
-import {
-  hasRequiredOrigins,
-  requestRequiredOrigins,
-} from "../../src/core/permissions.ts";
+import { overlayEvidence } from "../../src/core/overlay.ts";
+import { hasRequiredOrigins, requestRequiredOrigins } from "../../src/core/permissions.ts";
 import { ListChecks, Server, ShieldCheck } from "lucide-preact";
 import { applyDocumentLocale, applyLocale, t } from "../../src/i18n.ts";
 import {
@@ -94,6 +92,7 @@ function Onboarding() {
     });
     setLists(response.lists);
     setLocal(response.local ?? []);
+    if (response.catalogError) setNotice({ tone: "error", text: response.catalogError });
   }
 
   async function loadLists(): Promise<void> {
@@ -106,7 +105,9 @@ function Onboarding() {
       setLocal(response.local ?? []);
       // 刻意不预选任何列表：订阅哪些由用户自己决定（原来会默认勾选活跃度最高的两个）。
       setStage("choosing");
-      if (response.lists.length === 0) {
+      if (response.catalogError) {
+        setNotice({ tone: "error", text: response.catalogError });
+      } else if (response.lists.length === 0) {
         setNotice({ tone: "info", text: t("onboarding.connect.empty") });
       }
     } catch (error) {
@@ -219,7 +220,7 @@ function Onboarding() {
                   .map((record) => ({
                     userId: record.userId,
                     screenName: record.screenName,
-                    tweetUrl: record.tweetUrl,
+                    tweetUrl: overlayEvidence(record, listId)?.tweetUrl,
                   }));
               },
               remove: async (listId, userId) => {
@@ -236,13 +237,10 @@ function Onboarding() {
           >
             <ListPicker
               lists={lists}
-              isSelected={(id) =>
-                selected.includes(id)}
+              isSelected={(id) => selected.includes(id)}
               onToggle={(id, checked) =>
                 setSelected(
-                  checked
-                    ? [...selected, id]
-                    : selected.filter((item) => item !== id),
+                  checked ? [...selected, id] : selected.filter((item) => item !== id),
                 )}
               emptyText={t("onboarding.choose.empty")}
             />

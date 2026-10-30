@@ -8,6 +8,7 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 import type { ListSummary } from "../contract/types.ts";
 import type {
+  ConfigResponse,
   ListsResponse,
   LocalListRow,
   MatchResponse,
@@ -16,13 +17,11 @@ import type {
 } from "../src/core/messaging.ts";
 import { sendMessage } from "../src/core/messaging.ts";
 import { applyLocale, t } from "../src/i18n.content.ts";
-import {
-  installBlockMenuInterceptor,
-  startBlockOnX,
-} from "../src/x/blockmenu.ts";
+import { installBlockMenuInterceptor, startBlockOnX } from "../src/x/blockmenu.ts";
 import { type DialogList, dialogLists } from "../src/x/dialoglists.ts";
 import { installFilter } from "../src/x/filter.ts";
 import { showNotice } from "../src/x/notice.ts";
+import { closeDialog } from "../src/x/dialog.ts";
 import { ATTR, SEL, X_MATCHES } from "../src/x/selectors.ts";
 
 export default defineContentScript({
@@ -32,6 +31,9 @@ export default defineContentScript({
     let listsCache: ListSummary[] = [];
     let localCache: LocalListRow[] = [];
     let subscribedIds: string[] = [];
+    let enabled = false;
+    let listsRevision = 0;
+    let configRevision = 0;
 
     const listNames = () =>
       new Map(
@@ -45,29 +47,46 @@ export default defineContentScript({
      * 判断所需的订阅集合与生效开关都由后台随 `lists` 下发，内容脚本不做业务判断。
      */
     const availableLists = (): DialogList[] =>
-      dialogLists({
-        server: listsCache,
-        local: localCache,
-        subscribed: subscribedIds,
-      });
+      enabled
+        ? dialogLists({
+          server: listsCache,
+          local: localCache,
+          subscribed: subscribedIds,
+        })
+        : [];
 
     const refreshLists = async () => {
+      const revision = ++listsRevision;
       try {
+        await refreshConfig();
         const response = await sendMessage<ListsResponse>({ type: "lists" });
+        if (revision !== listsRevision) return;
         // 先确定语言和名单名称，再允许首批卡片渲染，避免混用语言或显示列表 ID。
         applyLocale(response.locale);
         listsCache = response.lists;
         localCache = response.local ?? [];
         subscribedIds = response.subscriptions;
+        enabled = response.enabled;
       } catch {
         // 后台尚未就绪时会失败，稍后重试即可。
       }
     };
+    const refreshConfig = async () => {
+      const revision = ++configRevision;
+      const { config } = await sendMessage<ConfigResponse>({ type: "getConfig" });
+      if (revision !== configRevision) return;
+      applyLocale(config.locale);
+      enabled = config.enabled;
+      subscribedIds = config.subscriptions;
+      localCache = config.localLists.map((list) => ({ ...list, entries: 0 }));
+      if (!enabled) closeDialog();
+    };
+    const initialConfig = refreshConfig().catch(() => {});
     const initialLists = refreshLists();
 
     const filter = installFilter({
       match: async (userIds) => {
-        await initialLists;
+        await initialConfig;
         const response = await sendMessage<MatchResponse>({
           type: "match",
           userIds,
@@ -100,6 +119,7 @@ export default defineContentScript({
     });
 
     const stopInterceptor = installBlockMenuInterceptor({
+      enabled: () => enabled,
       lists: () => availableLists(),
       history: async () =>
         (await sendMessage<ReasonHistoryResponse>({ type: "reasonHistory" }))
@@ -117,28 +137,26 @@ export default defineContentScript({
           if (response.error) {
             return t("dialog.submitFailed", { error: response.error });
           }
-          // 「在线提交」关掉时什么都没发：不能让用户以为举报已经交上去了。
-          if (!response.submitted) return t("dialog.submitDisabled");
-          const accepted = response.results.filter((item) =>
-            item.status === "accepted"
-          ).length;
-          const duplicate = response.results.filter((item) =>
-            item.status === "duplicate"
-          ).length;
-          if (accepted > 0) return t("dialog.submitted", { n: accepted });
-          if (duplicate > 0) return t("dialog.duplicate");
-          // 到这里就都是"没提交成功"。返回 null 会让用户看到帖子被隐藏、以为举报成功。
-          const queued = response.results.find((item) =>
-            item.status === "queued"
-          );
-          if (queued) return t("dialog.submitQueued");
-          const rejected = response.results.find((item) =>
-            item.status === "rejected"
-          );
-          if (rejected) {
-            return t("dialog.submitFailed", { error: rejected.detail ?? "" });
+          const messages: string[] = [];
+          if (response.localCount > 0) {
+            messages.push(t("dialog.savedLocally", { n: response.localCount }));
           }
-          return null;
+          // 本地保存和平台回执分别展示；混合选择时不能让本地成功盖过在线失败。
+          if (!response.submitted) {
+            if (response.localCount < listIds.length) messages.push(t("dialog.submitDisabled"));
+            return messages.join(" ") || null;
+          }
+          const accepted = response.results.filter((item) => item.status === "accepted").length;
+          const duplicate = response.results.filter((item) => item.status === "duplicate").length;
+          if (accepted > 0) messages.push(t("dialog.submitted", { n: accepted }));
+          if (duplicate > 0) messages.push(t("dialog.duplicate"));
+          const queued = response.results.find((item) => item.status === "queued");
+          if (queued) messages.push(t("dialog.submitQueued"));
+          const rejected = response.results.find((item) => item.status === "rejected");
+          if (rejected) {
+            messages.push(t("dialog.submitFailed", { error: rejected.detail ?? "" }));
+          }
+          return messages.join(" ") || null;
         } catch (error) {
           return t("dialog.submitFailed", {
             error: error instanceof Error ? error.message : String(error),
@@ -168,7 +186,9 @@ export default defineContentScript({
       const type = (message as { type?: string } | null)?.type;
       // 后台在订阅、语言、本地覆盖或同步结果变化时都会发这一条，统一重算即可。
       if (type === "refresh") {
-        void refreshLists().then(() => filter.refresh());
+        // 总开关和本地名单先立即更新，在线目录失败或超时不阻塞过滤状态。
+        void refreshConfig().then(() => filter.refresh()).catch(() => {});
+        void refreshLists().then(() => filter.refresh()).catch(() => {});
         return undefined;
       }
       if (type === "xlearDiagnose") {
@@ -179,6 +199,7 @@ export default defineContentScript({
     };
     browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => {
+      closeDialog();
       clearInterval(listTimer);
       filter.destroy();
       stopInterceptor();
@@ -190,11 +211,9 @@ export default defineContentScript({
      * 只在打开的 X 页面里跑，因此结果反映的是真实渲染状态。
      */
     function runDiagnostics() {
-      const has = (selector: string) =>
-        document.querySelector(selector) !== null;
+      const has = (selector: string) => document.querySelector(selector) !== null;
       const tweetCount = document.querySelectorAll(SEL.tweet).length;
-      const checked =
-        document.querySelectorAll(`${SEL.tweet}[${ATTR.checked}]`).length;
+      const checked = document.querySelectorAll(`${SEL.tweet}[${ATTR.checked}]`).length;
       const matchedCount = filter.matched().size;
       return {
         url: location.href,

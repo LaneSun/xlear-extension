@@ -13,6 +13,43 @@
 export interface OverlayLike {
   userId: string;
   lists: string[];
+  evidence?: Record<string, OverlayEvidence>;
+  /** 旧版本只按账号存证据；多列表记录无法确定归属，不自动上传。 */
+  tweetId?: string;
+  tweetUrl?: string;
+}
+
+export interface OverlayEvidence {
+  tweetId: string;
+  tweetUrl?: string;
+}
+
+export function overlayEvidence(record: OverlayLike, listId: string): OverlayEvidence | undefined {
+  if (!record.lists.includes(listId)) return undefined;
+  if (record.evidence) return record.evidence[listId];
+  return record.lists.length === 1 && record.tweetId
+    ? { tweetId: record.tweetId, tweetUrl: record.tweetUrl }
+    : undefined;
+}
+
+/** 删除成员关系时同时整理证据，不能让旧的多列表证据变成单列表证据。 */
+export function withOverlayLists<T extends OverlayLike>(record: T, lists: string[]): T {
+  const evidence = Object.fromEntries(lists.flatMap((id) => {
+    const value = overlayEvidence(record, id);
+    return value ? [[id, value]] : [];
+  }));
+  return { ...record, lists, evidence };
+}
+
+export function mergeOverlay<T extends OverlayLike>(existing: T | undefined, incoming: T): T {
+  const before = existing ? withOverlayLists(existing, existing.lists) : undefined;
+  const next = withOverlayLists(incoming, incoming.lists);
+  return {
+    ...before,
+    ...next,
+    lists: [...new Set([...(before?.lists ?? []), ...next.lists])],
+    evidence: { ...before?.evidence, ...next.evidence },
+  };
 }
 
 /**
@@ -29,7 +66,13 @@ export function takeOverCoveredOverlay<T extends OverlayLike>(
   for (const record of records) {
     const online = new Set(onlineListsByUser.get(record.userId) ?? []);
     const lists = record.lists.filter((id) => !online.has(id));
-    if (lists.length > 0) kept.push({ ...record, lists });
+    if (lists.length > 0) {
+      kept.push(
+        lists.length === record.lists.length
+          ? { ...record, lists }
+          : withOverlayLists(record, lists),
+      );
+    }
   }
   return kept;
 }

@@ -1,9 +1,6 @@
 import { browser } from "wxt/browser";
 import { type ExtensionConfig, normalizeConfig } from "./settings.ts";
-import {
-  normalizeReasonHistory,
-  type ReasonHistory,
-} from "./reason-history.ts";
+import { normalizeReasonHistory, type ReasonHistory } from "./reason-history.ts";
 
 /** 扩展侧配置的读写与归一化；形状与默认值在 `settings.ts`。 */
 
@@ -24,8 +21,16 @@ let configQueue: Promise<unknown> = Promise.resolve();
 export function patchConfig(
   patch: Partial<ExtensionConfig>,
 ): Promise<ExtensionConfig> {
+  return mutateConfig(() => patch);
+}
+
+/** 集合的读改写也在队列内计算，不能把旧数组作为补丁排队。 */
+export function mutateConfig(
+  mutate: (current: ExtensionConfig) => Partial<ExtensionConfig>,
+): Promise<ExtensionConfig> {
   const result = configQueue.then(async () => {
     const current = await loadConfig();
+    const patch = mutate(current);
     const next = normalizeConfig({
       ...current,
       ...patch,
@@ -132,9 +137,7 @@ export async function bumpHidden(userIds: readonly string[]): Promise<void> {
   if (userIds.length === 0) return;
   await mutateState((state) => {
     const day = todayKey();
-    const current = state.counters.day === day
-      ? state.counters.hiddenAccounts
-      : [];
+    const current = state.counters.day === day ? state.counters.hiddenAccounts : [];
     const merged = [...new Set([...current, ...userIds])].slice(
       -HIDDEN_ACCOUNTS_CAP,
     );

@@ -1,15 +1,9 @@
 /** 弹窗与设置页共用的小组件。图标统一从 lucide 取，尺寸与线宽由 Icon 兜住。 */
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { lockPageScroll } from "./scroll-lock.ts";
 import type { ListSummary } from "../../contract/types.ts";
-import {
-  Ellipsis,
-  ListPlus,
-  type LucideIcon,
-  type LucideProps,
-  Search,
-  X,
-} from "lucide-preact";
+import { Ellipsis, ListPlus, type LucideIcon, type LucideProps, Search, X } from "lucide-preact";
 import { t } from "../i18n.ts";
 import type { LocalListRow } from "../core/messaging.ts";
 // 叶子模块按相对路径引入：页面与内容脚本都不该被 contract/mod.ts 的整桶依赖拖累。
@@ -219,9 +213,7 @@ export function Banner(
 }
 
 export function Spinner(props: { label?: string }) {
-  return (
-    <span class="xl-muted" style="font-size: 13px;">{props.label ?? "…"}</span>
-  );
+  return <span class="xl-muted" style="font-size: 13px;">{props.label ?? "…"}</span>;
 }
 
 /**
@@ -260,17 +252,14 @@ export function ListPicker(
             value={query}
             placeholder={t("lists.search")}
             aria-label={t("lists.search")}
-            onInput={(event) =>
-              setQuery((event.target as HTMLInputElement).value)}
+            onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
           />
         </div>
       </div>
       {visible.length === 0
         ? (
           <p class="xl-list-empty">
-            {props.lists.length === 0
-              ? props.emptyText
-              : t("lists.noMatch", { q: query.trim() })}
+            {props.lists.length === 0 ? props.emptyText : t("lists.noMatch", { q: query.trim() })}
           </p>
         )
         : visible.map((list) => {
@@ -363,11 +352,10 @@ function RowMenu(
               key={item.label}
               type="button"
               role="menuitem"
-              class={item.tone === "danger"
-                ? "xl-menu-item xl-menu-item-danger"
-                : "xl-menu-item"}
+              class={item.tone === "danger" ? "xl-menu-item xl-menu-item-danger" : "xl-menu-item"}
               onClick={() => {
                 setOpen(false);
+                root.current?.querySelector("button")?.focus({ preventScroll: true });
                 item.onSelect();
               }}
             >
@@ -393,16 +381,56 @@ function EntriesDialog(
   },
 ) {
   const title = t("lists.entries.title", { name: props.name });
-  useEffect(() => {
+  const backdrop = useRef<HTMLDivElement>(null);
+  const onClose = useRef(props.onClose);
+  onClose.current = props.onClose;
+  useLayoutEffect(() => {
+    const host = backdrop.current;
+    if (!host) return;
+    const previous = document.activeElement;
+    const unlock = lockPageScroll();
+    const inert = new Map<Element, boolean>();
+    // 弹窗位于组件树内：逐层隔离兄弟节点，不把弹窗自己的祖先设为 inert。
+    for (let node: Element = host; node.parentElement; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        if (sibling === node) continue;
+        inert.set(sibling, sibling.hasAttribute("inert"));
+        sibling.setAttribute("inert", "");
+      }
+      if (node.parentElement === document.body) break;
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onClose.current();
+      } else if (event.key === "Tab") {
+        const nodes = [
+          ...host.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]'),
+        ];
+        if (!nodes.length) return;
+        const index = nodes.indexOf(document.activeElement as HTMLElement);
+        const next = event.shiftKey
+          ? (index <= 0 ? nodes.length - 1 : index - 1)
+          : (index + 1) % nodes.length;
+        event.preventDefault();
+        nodes[next]?.focus();
+      }
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  });
+    host.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      for (const [node, value] of inert) node.toggleAttribute("inert", value);
+      unlock();
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+  }, []);
 
   return (
-    <div class="xl-modal-backdrop" onClick={props.onClose}>
+    <div ref={backdrop} class="xl-modal-backdrop" onClick={props.onClose}>
       <div
         class="xl-modal"
         role="dialog"
@@ -446,8 +474,7 @@ function EntriesDialog(
                     type="button"
                     class="xl-btn xl-btn-ghost"
                     disabled={props.busy}
-                    onClick={() =>
-                      props.onRemove(entry.userId)}
+                    onClick={() => props.onRemove(entry.userId)}
                   >
                     {t("options.overlay.remove")}
                   </button>
@@ -558,8 +585,7 @@ export function LocalListsPanel(
                         value={name}
                         maxLength={60}
                         placeholder={t("lists.createName")}
-                        onInput={(event) =>
-                          setName((event.target as HTMLInputElement).value)}
+                        onInput={(event) => setName((event.target as HTMLInputElement).value)}
                       />
                       <textarea
                         class="xl-input"
@@ -578,9 +604,7 @@ export function LocalListsPanel(
                           disabled={props.busy || name.trim().length === 0 ||
                             reason.trim().length === 0}
                           onClick={() =>
-                            void run(() =>
-                              props.onRename(row.id, name.trim(), reason.trim())
-                            )}
+                            void run(() => props.onRename(row.id, name.trim(), reason.trim()))}
                         >
                           {t("common.save")}
                         </button>
@@ -613,9 +637,7 @@ export function LocalListsPanel(
                         <span class="xl-list-body">
                           <span class="xl-list-head">
                             <span class="xl-list-name">{row.name}</span>
-                            {!row.enabled && (
-                              <Chip>{t("common.disabled")}</Chip>
-                            )}
+                            {!row.enabled && <Chip>{t("common.disabled")}</Chip>}
                             <Chip>{t("lists.mine.local")}</Chip>
                             <Chip>
                               {t("list.entries", {
@@ -671,16 +693,14 @@ export function LocalListsPanel(
                 value={name}
                 maxLength={60}
                 placeholder={t("lists.createName")}
-                onInput={(event) =>
-                  setName((event.target as HTMLInputElement).value)}
+                onInput={(event) => setName((event.target as HTMLInputElement).value)}
               />
               <textarea
                 class="xl-input"
                 value={reason}
                 maxLength={300}
                 placeholder={t("lists.createReason")}
-                onInput={(event) =>
-                  setReason((event.target as HTMLTextAreaElement).value)}
+                onInput={(event) => setReason((event.target as HTMLTextAreaElement).value)}
               />
               <div class="xl-create-actions">
                 <button
@@ -688,8 +708,7 @@ export function LocalListsPanel(
                   class="xl-btn xl-btn-primary"
                   disabled={props.busy || name.trim().length === 0 ||
                     reason.trim().length === 0}
-                  onClick={() =>
-                    void run(() => props.onCreate(name.trim(), reason.trim()))}
+                  onClick={() => void run(() => props.onCreate(name.trim(), reason.trim()))}
                 >
                   {t("lists.createSubmit")}
                 </button>

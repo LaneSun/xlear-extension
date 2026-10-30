@@ -36,6 +36,15 @@ before it goes in, and from then on everyone subscribed to that list stops seein
   on your device.
 - **Speaks your language.** English, 中文, 日本語, Русский.
 
+Local lists remain available when the server is offline. Unsubscribing stops a list from filtering
+while retaining its cache for later use. If a local list becomes an online list, its enabled state is
+preserved and each reason keeps its own post evidence. The master switch also disables the reason picker.
+
+File backups and WebDAV transfers include local list names, reasons, membership and enabled states.
+Imports merge with existing data; existing list settings win conflicts, and repeated imports do not
+duplicate queued reports. Invalid backups are rejected before storage changes. Older backups remain
+readable, but missing list definitions or ambiguous historical evidence cannot be reconstructed.
+
 ## The filter lists
 
 | List | What it catches |

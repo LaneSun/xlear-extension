@@ -4,16 +4,10 @@
  * 每个列表记一个已应用的版本号，之后只拉差量。如果服务端告知本地落后于保留水位
  * （差量被压缩了），就整表重拉。同步结束会打一次订阅卡，用于服务端统计活跃度。
  */
-import { loadConfig, loadState, mutateState, patchConfig } from "./config.ts";
-import type { ExtensionConfig } from "./settings.ts";
+import { loadConfig, loadState, mutateConfig, mutateState } from "./config.ts";
 import type { ListSummary } from "../../contract/types.ts";
 import { fetchChanges, fetchLists, fetchSnapshot } from "./api.ts";
-import {
-  applyChanges,
-  countFiltered,
-  countListEntries,
-  replaceListSnapshot,
-} from "./storage.ts";
+import { applyChanges, countFiltered, countListEntries, replaceListSnapshot } from "./storage.ts";
 
 export interface SyncResult {
   /** 处理过的列表数。 */
@@ -25,20 +19,23 @@ export interface SyncResult {
 
 let syncQueue: Promise<unknown> = Promise.resolve();
 
-export function syncAll(
-  config?: ExtensionConfig,
-  options: { force?: boolean; catalog?: ListSummary[] } = {},
-): Promise<SyncResult> {
-  const result = syncQueue.then(() => syncOnce(config, options));
+/** 同步、导入和清空共用：条目与版本水位不能被另一项维护操作拆开。 */
+export function withSyncLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = syncQueue.then(operation);
   syncQueue = result.catch(() => {});
   return result;
 }
 
-async function syncOnce(
-  config?: ExtensionConfig,
+export function syncAll(
   options: { force?: boolean; catalog?: ListSummary[] } = {},
 ): Promise<SyncResult> {
-  const current = config ?? await loadConfig();
+  return withSyncLock(() => syncOnce(options));
+}
+
+async function syncOnce(
+  options: { force?: boolean; catalog?: ListSummary[] } = {},
+): Promise<SyncResult> {
+  const current = await loadConfig();
   const state = await loadState();
   const updatedVersions: typeof state.listVersions = {};
   const result: SyncResult = { lists: 0, totalEntries: 0, errors: [] };
@@ -50,9 +47,9 @@ async function syncOnce(
   const stale = current.subscriptions.filter((id) => !known.has(id));
   if (stale.length > 0) {
     // 订阅了目录里没有的列表（被下架或删掉）：静默丢弃，不当作错误 —— 用户没做错任何事。
-    await patchConfig({
-      subscriptions: current.subscriptions.filter((id) => known.has(id)),
-    });
+    await mutateConfig((latest) => ({
+      subscriptions: latest.subscriptions.filter((id) => !stale.includes(id)),
+    }));
     console.info(`[xlear] 已丢弃目录里不存在的订阅：${stale.join("、")}`);
   }
   const targets = current.subscriptions.filter((id) => known.has(id));
@@ -60,10 +57,14 @@ async function syncOnce(
 
   for (const listId of targets) {
     const record = state.listVersions[listId];
-    const since = options.force ? 0 : record?.version ?? 0;
+    // 旧版本退订曾清空条目而保留水位；同时修复这种已落盘的不一致。
+    const reset = options.force || !record ||
+      record.version > (byId.get(listId)?.version ?? 0) ||
+      record.entries !== await countListEntries(listId);
+    const since = reset ? 0 : record.version;
     // 版本没动就不请求：包管理器式的纪律，一次目录 + 几个真正变了的列表。
     if (
-      !options.force && record &&
+      !reset && record &&
       record.version >= (byId.get(listId)?.version ?? 0)
     ) {
       result.lists++;
@@ -73,7 +74,7 @@ async function syncOnce(
       const changes = await fetchChanges(listId, since);
       // 整表重拉的两种情形：差量已被压缩（本地版本落后于保留水位），或用户手动强制同步。
       // 强制同步走全量，才能把服务端已删除的条目一并清掉。
-      if (options.force || changes.minRetainedSeq > since) {
+      if (reset || changes.minRetainedSeq > since) {
         let count = 0;
         const userIds: string[] = [];
         await fetchSnapshot(listId, (line) => {
@@ -132,9 +133,7 @@ async function syncOnce(
   await mutateState((latest) => ({
     listVersions: { ...latest.listVersions, ...updatedVersions },
     lastSyncAt: Date.now(),
-    lastSyncError: result.errors.length > 0
-      ? result.errors.join("; ")
-      : undefined,
+    lastSyncError: result.errors.length > 0 ? result.errors.join("; ") : undefined,
   }));
   result.totalEntries = await countFiltered();
   return result;

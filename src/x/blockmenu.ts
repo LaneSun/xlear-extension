@@ -24,6 +24,7 @@ import { ATTR, postLink, SEL } from "./selectors.ts";
 const BLOCK_MENU_TIMEOUT_MS = 2_500;
 
 export interface BlockMenuDeps {
+  enabled?: () => boolean;
   /**
    * 可以拿来当举报理由的名单：后台下发的已订阅服务器列表，加上已启用的本地列表。
    * 这里只要弹窗真正用到的三个字段，不必是完整的目录条目。
@@ -68,6 +69,10 @@ export function installBlockMenuInterceptor(deps: BlockMenuDeps): () => void {
   let openedAt = 0;
   let intercepting = false;
   const onClick = (event: MouseEvent) => {
+    if (deps.enabled?.() === false) {
+      pending = null;
+      return;
+    }
     const target = event.target;
     if (!(target instanceof Element)) return;
     const caret = target.closest(SEL.caret);
@@ -184,14 +189,19 @@ async function handleInterceptedBlock(
     confirmationDialog,
     2_000,
   );
-  if (!dialogPresent) {
+  if (!dialogPresent || deps.enabled?.() === false) {
     // 没等到 X 的弹窗（例如它是直接屏蔽、无确认），此时不必插入我们的流程。
     unsuppressLayers();
     return;
   }
 
+  const history = await deps.history?.().catch(() => undefined);
+  if (deps.enabled?.() === false) {
+    unsuppressLayers();
+    return;
+  }
   const result = await showReasonDialog({
-    history: await deps.history?.().catch(() => undefined),
+    history,
     screenName: pending.screenName,
     lists: available.map((list) => ({
       id: list.id,
@@ -209,7 +219,7 @@ async function handleInterceptedBlock(
     },
   });
 
-  if (result.kind === "cancel") {
+  if (result.kind === "cancel" || deps.enabled?.() === false) {
     unsuppressLayers();
     const cancel = dialogPresent.querySelector(SEL.cancelButton);
     if (cancel) simulateClick(cancel);

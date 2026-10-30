@@ -38,6 +38,9 @@ export interface LocalListRow {
 }
 
 export interface ListsResponse {
+  enabled: boolean;
+  /** 在线目录不可用时仍返回本地列表，界面单独提示连接失败。 */
+  catalogError?: string;
   /** 服务器上的列表目录；本地列表在 `local` 里，两者不混。 */
   lists: ListSummary[];
   /** 自建列表：与服务器列表是两种东西，单独给出，不混进 `lists` 的语义里。 */
@@ -65,6 +68,8 @@ export interface ReasonHistoryResponse {
 }
 
 export interface SubmitResponse {
+  /** 已保存到本地列表的数量；不混入服务端的 accepted/queued 等回执。 */
+  localCount: number;
   results: ReportSubmitResult[];
   /**
    * 面向服务端的那部分有没有真的发出去。
@@ -240,6 +245,8 @@ export interface ClearAllRequest {
 }
 
 export type ExtensionMessage =
+  | { type: "exportBackup"; passphrase: string }
+  | { type: "importBackup"; content: string; passphrase: string }
   | CreateLocalListRequest
   | RenameLocalListRequest
   | SetLocalListEnabledRequest
@@ -267,6 +274,7 @@ export type ExtensionMessage =
   | ClearAllRequest;
 
 export type MessageResponse =
+  | { content: string }
   | MatchResponse
   | ListsResponse
   | ReasonHistoryResponse

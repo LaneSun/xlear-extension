@@ -4,32 +4,25 @@
  * 需求：用户可以在别的设备上恢复数据，密钥一起带过去，但之后两端不再自动同步。
  * 因此这里是"推一份 / 拉一份"的显式操作，默认还会用口令加密（密钥本身也在里面）。
  */
-import { loadAccountKey, loadConfig, patchConfig, saveAccountKey } from "../core/config.ts";
+import {
+  loadAccountKey,
+  loadConfig,
+  mutateConfig,
+  mutateState,
+  saveAccountKey,
+} from "../core/config.ts";
 import type { ExtensionConfig } from "../core/settings.ts";
-import { exportAll, importAll, type ExportBundle } from "../core/storage.ts";
+import { exportAll, importAll } from "../core/storage.ts";
+import { withSyncLock } from "../core/sync.ts";
+import {
+  type BackupEnvelope as Envelope,
+  type BackupPayload as SyncPayload,
+  parseEnvelope,
+  parsePayload,
+} from "./backup.ts";
 
 const FILE_NAME = "xlear-sync.json";
 const PBKDF2_ITERATIONS = 250_000;
-
-interface Envelope {
-  version: 1;
-  encrypted: boolean;
-  exportedAt: number;
-  salt?: string;
-  iv?: string;
-  data: string;
-}
-
-interface SyncPayload {
-  version: 1;
-  exportedAt: number;
-  config: Pick<
-    ExtensionConfig,
-    "subscriptions" | "enabled"
-  >;
-  accountKey: string | null;
-  data: Omit<ExportBundle, "config" | "accountKey">;
-}
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -90,22 +83,24 @@ async function seal(payload: SyncPayload, passphrase: string): Promise<Envelope>
   };
 }
 
-async function open(envelope: Envelope, passphrase: string): Promise<SyncPayload> {
+async function open(raw: unknown, passphrase: string): Promise<SyncPayload> {
+  const envelope = parseEnvelope(raw);
   if (!envelope.encrypted) {
-    return JSON.parse(new TextDecoder().decode(fromBase64(envelope.data))) as SyncPayload;
+    return parsePayload(JSON.parse(new TextDecoder().decode(fromBase64(envelope.data))));
   }
   if (!envelope.salt || !envelope.iv) throw new Error("同步文件缺少加密参数");
   const key = await deriveKey(passphrase, fromBase64(envelope.salt));
+  let plain: ArrayBuffer;
   try {
-    const plain = await crypto.subtle.decrypt(
+    plain = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: fromBase64(envelope.iv) },
       key,
       fromBase64(envelope.data),
     );
-    return JSON.parse(new TextDecoder().decode(plain)) as SyncPayload;
   } catch {
     throw new Error("解密失败：口令不正确");
   }
+  return parsePayload(JSON.parse(new TextDecoder().decode(plain)));
 }
 
 function endpoint(config: ExtensionConfig): string {
@@ -129,17 +124,25 @@ async function buildPayload(config: ExtensionConfig): Promise<SyncPayload> {
     config: {
       subscriptions: config.subscriptions,
       enabled: config.enabled,
+      localLists: config.localLists,
+      onlineSubmission: config.onlineSubmission,
+      locale: config.locale,
     },
     accountKey: await loadAccountKey(),
     data,
   };
 }
 
-export async function testWebdav(config: ExtensionConfig): Promise<{ ok: boolean; message: string }> {
-  if (config.webdav.url.trim().length === 0) return { ok: false, message: "还没有填写 WebDAV 地址" };
+export async function testWebdav(
+  config: ExtensionConfig,
+): Promise<{ ok: boolean; message: string }> {
+  if (config.webdav.url.trim().length === 0) {
+    return { ok: false, message: "还没有填写 WebDAV 地址" };
+  }
   try {
     const response = await fetch(endpoint(config), {
       method: "HEAD",
+      credentials: "omit",
       headers: authHeader(config),
       signal: AbortSignal.timeout(15_000),
     });
@@ -147,6 +150,7 @@ export async function testWebdav(config: ExtensionConfig): Promise<{ ok: boolean
       // 有些服务端不支持 HEAD，用 GET 再试一次。
       const retry = await fetch(endpoint(config), {
         method: "GET",
+        credentials: "omit",
         headers: authHeader(config),
         signal: AbortSignal.timeout(15_000),
       });
@@ -161,13 +165,18 @@ export async function testWebdav(config: ExtensionConfig): Promise<{ ok: boolean
   }
 }
 
-export async function pushToWebdav(config: ExtensionConfig): Promise<{ ok: boolean; message: string }> {
-  if (config.webdav.url.trim().length === 0) return { ok: false, message: "还没有填写 WebDAV 地址" };
+export async function pushToWebdav(
+  config: ExtensionConfig,
+): Promise<{ ok: boolean; message: string }> {
+  if (config.webdav.url.trim().length === 0) {
+    return { ok: false, message: "还没有填写 WebDAV 地址" };
+  }
   try {
     const payload = await buildPayload(config);
     const envelope = await seal(payload, config.webdav.passphrase);
     const response = await fetch(endpoint(config), {
       method: "PUT",
+      credentials: "omit",
       headers: {
         "content-type": "application/json",
         ...authHeader(config),
@@ -186,19 +195,24 @@ export async function pushToWebdav(config: ExtensionConfig): Promise<{ ok: boole
  * 从 WebDAV 拉取并合并。
  * 集合取并集；配置只在本地还是"空壳"（没有任何订阅）时才采用远端，避免覆盖本地偏好。
  */
-export async function pullFromWebdav(config: ExtensionConfig): Promise<{ ok: boolean; message: string }> {
-  if (config.webdav.url.trim().length === 0) return { ok: false, message: "还没有填写 WebDAV 地址" };
+export async function pullFromWebdav(
+  config: ExtensionConfig,
+): Promise<{ ok: boolean; message: string }> {
+  if (config.webdav.url.trim().length === 0) {
+    return { ok: false, message: "还没有填写 WebDAV 地址" };
+  }
   try {
     const response = await fetch(endpoint(config), {
       method: "GET",
+      credentials: "omit",
       headers: authHeader(config),
       signal: AbortSignal.timeout(30_000),
     });
     if (response.status === 404) return { ok: false, message: "远端还没有同步文件" };
     if (!response.ok) return { ok: false, message: `下载失败：HTTP ${response.status}` };
-    const envelope = await response.json() as Envelope;
+    const envelope: unknown = await response.json();
     const payload = await open(envelope, config.webdav.passphrase);
-    return await mergePayload(payload, config);
+    return await mergePayload(payload);
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
@@ -206,17 +220,40 @@ export async function pullFromWebdav(config: ExtensionConfig): Promise<{ ok: boo
 
 async function mergePayload(
   payload: SyncPayload,
-  config: ExtensionConfig,
 ): Promise<{ ok: boolean; message: string }> {
-  await importAll(payload.data);
-  const subscriptions = [...new Set([...config.subscriptions, ...payload.config.subscriptions])];
-  await patchConfig({ subscriptions });
-  if (payload.accountKey && (await loadAccountKey()) === null) {
-    await saveAccountKey(payload.accountKey);
-  }
+  await withSyncLock(async () => {
+    await importAll(payload.data);
+    await mutateConfig((config) => {
+      const empty = config.subscriptions.length === 0 && config.localLists.length === 0;
+      const existing = new Set([
+        ...config.subscriptions,
+        ...config.localLists.map((list) => list.id),
+      ]);
+      return {
+        ...(empty
+          ? {
+            enabled: payload.config.enabled,
+            onlineSubmission: payload.config.onlineSubmission ?? config.onlineSubmission,
+            locale: payload.config.locale ?? config.locale,
+          }
+          : {}),
+        subscriptions: [...new Set([...config.subscriptions, ...payload.config.subscriptions])],
+        localLists: [
+          ...config.localLists,
+          ...(payload.config.localLists ?? []).filter((list) => !existing.has(list.id)),
+        ],
+      };
+    });
+    // 导入的在线缓存可能比当前水位更旧；下次按服务器全量重新对齐。
+    await mutateState(() => ({ listVersions: {}, lastSyncAt: 0, lastSyncError: undefined }));
+    if (payload.accountKey && (await loadAccountKey()) === null) {
+      await saveAccountKey(payload.accountKey);
+    }
+  });
   return {
     ok: true,
-    message: `已合并：订阅 ${payload.config.subscriptions.length} 个列表，条目 ${payload.data.filtered.length} 条`,
+    message:
+      `已合并：订阅 ${payload.config.subscriptions.length} 个列表，条目 ${payload.data.filtered.length} 条`,
   };
 }
 
@@ -224,7 +261,10 @@ async function mergePayload(
 export async function exportToFile(passphrase: string): Promise<string> {
   const config = await loadConfig();
   const payload = await buildPayload(config);
-  const envelope = await seal(payload, passphrase.length > 0 ? passphrase : config.webdav.passphrase);
+  const envelope = await seal(
+    payload,
+    passphrase.length > 0 ? passphrase : config.webdav.passphrase,
+  );
   return JSON.stringify(envelope, null, 2);
 }
 
@@ -233,13 +273,10 @@ export async function importFromFile(
   passphrase: string,
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    const envelope = JSON.parse(content) as Envelope;
+    const envelope: unknown = JSON.parse(content);
     const payload = await open(envelope, passphrase);
-    const config = await loadConfig();
-    return await mergePayload(payload, config);
+    return await mergePayload(payload);
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
 }
-
-/** 清空账号密钥（配合 clearAll 使用）。 */
