@@ -140,9 +140,9 @@ docs/screenshots/ README 用的界面截图
 
 ## 仓库状态
 
-- 版本 0.5.0，已发布 `v0.5.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip` 与 `SHA256SUMS`）。
+- 版本 0.6.0，发布标签 `v0.6.0`（Release 附 `-chrome.zip`、`.xpi`、`.crx`、`-sources.zip`、`updates.xml` 与 `SHA256SUMS`）。
   Chrome 与 Firefox 构建通过，`pnpm run compile` 干净。
-- 0.5.0 的内容：在线提交开关、本地屏蔽被在线列表接管后退场；上架 AMO 由 `amo-listed` 工作流自动提交。
+- 0.6.0 的内容：手机版 X 识别与布局适配、弹窗配色修复、最近理由排序与快捷复用、快照及并发稳定性修复；上架 AMO 由 `amo-listed` 工作流自动提交。
 - crx 自动更新（`updates.xml`）自 v0.4.0 起并入 main；自托管用的 unlisted 签名已注释掉
   （各版本走 listed，两个通道对同一版本号只能提交一次，见「发版」）。
 - 隐藏状态以帖子为单位；独占格子额外保留 `data-xlear-cell-hidden` 与卡片高度，保证重建时不会突然撑开。同格有多个作者时不能整格隐藏；新版移动页没有格子，直接在帖子上压缩。**不要用 `display:none`** —— 原节点留在布局中；原始子树设为透明与 inert，避免带 z-index 的头像或媒体穿透遮罩，恢复时保留原有 aria/inert 状态。高度由 ResizeObserver 测量，不播放反复重建的过渡动画。
